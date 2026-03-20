@@ -26,8 +26,11 @@ const BONUS_LIBRARY = [
 ];
 
 const ui = {
+  stackHeader: document.querySelector(".stack-header"),
   timeline: document.querySelector("#timeline"),
+  timelineView: document.querySelector(".timeline-view"),
   scoreValue: document.querySelector("#scoreValue"),
+  scoreWrap: document.querySelector(".score-wrap"),
   questButton: document.querySelector("#questButton"),
   questModal: document.querySelector("#questModal"),
   questTitle: document.querySelector("#questTitle"),
@@ -46,6 +49,7 @@ const state = {
 };
 
 let feedbackTimer = 0;
+let fitTextFrame = 0;
 
 initialize();
 
@@ -54,6 +58,12 @@ function initialize() {
   bindEvents();
   render();
   focusLatestOnce();
+
+  if (document.fonts?.ready) {
+    document.fonts.ready.then(() => {
+      scheduleFitText();
+    });
+  }
 }
 
 function bindEvents() {
@@ -61,6 +71,7 @@ function bindEvents() {
   ui.acceptButton.addEventListener("click", acceptQuest);
   ui.rejectButton.addEventListener("click", rejectQuest);
   ui.rerollButton.addEventListener("click", rerollQuest);
+  window.addEventListener("resize", scheduleFitText, { passive: true });
 }
 
 function loadState() {
@@ -205,10 +216,18 @@ function applyPenalty(value) {
 }
 
 function render() {
-  ui.scoreValue.textContent = state.score.toLocaleString();
+  const scoreInner = ui.scoreValue.querySelector(".fit-text-inner");
+
+  if (scoreInner) {
+    scoreInner.textContent = state.score.toLocaleString();
+  } else {
+    ui.scoreValue.textContent = state.score.toLocaleString();
+  }
+
   ui.timeline.innerHTML = buildTimelineMarkup();
   state.lastRenderedEventId = null;
   renderQuestModal();
+  scheduleFitText();
 }
 
 function closeQuestModal() {
@@ -241,117 +260,55 @@ function buildTimelineMarkup() {
   const rows = [];
   const sortedEvents = [...state.events].sort(sortByTimestamp);
   let currentDayKey = "";
-  let currentMonthKey = "";
-  const sideLoad = { left: 0, right: 0 };
-  let previousQuestSide = "";
-  let sameSideRun = 0;
 
   for (const event of sortedEvents) {
     const eventDate = new Date(event.timestamp);
     const dayKey = getDayKey(eventDate);
-    const monthKey = getMonthKey(eventDate);
-
-    if (monthKey !== currentMonthKey) {
-      rows.push(renderMonthRow(monthKey));
-      currentMonthKey = monthKey;
-    }
 
     if (dayKey !== currentDayKey) {
       rows.push(renderDateRow(formatDayLabel(eventDate)));
       currentDayKey = dayKey;
     }
 
-    if (event.type === "bonus") {
-      rows.push(renderBonusRow(event));
-      continue;
-    }
-
-    const side = chooseQuestSide(event, sideLoad, previousQuestSide, sameSideRun);
-    rows.push(renderQuestRow(event, side));
-    sideLoad[side] += 1;
-
-    if (side === previousQuestSide) {
-      sameSideRun += 1;
-    } else {
-      previousQuestSide = side;
-      sameSideRun = 1;
-    }
+    rows.push(renderEventRow(event));
   }
 
   return rows.join("");
 }
 
-function renderMonthRow(monthLabel) {
-  return `
-    <div class="timeline-row month-label">
-      <div class="timeline-side left"></div>
-      <div class="timeline-anchor"></div>
-      <div class="timeline-side right">
-        <div class="timeline-card">
-          <span class="month-copy">${escapeHtml(monthLabel)}</span>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 function renderDateRow(dayLabel) {
   return `
-    <div class="timeline-row date-label">
-      <div class="timeline-side left"></div>
-      <div class="timeline-anchor">
-        <span class="timeline-dot"></span>
-      </div>
-      <div class="timeline-side right">
-        <div class="timeline-card">
-          <span class="date-copy">${escapeHtml(dayLabel)}</span>
-        </div>
-      </div>
-    </div>
+    <section class="stack-row stack-row-date" aria-label="${escapeHtml(dayLabel)}">
+      <p
+        class="fit-text stack-copy stack-copy-date"
+        data-fit-text
+        data-fit-base="86"
+      >
+        <span class="fit-text-inner">${escapeHtml(dayLabel)}</span>
+      </p>
+    </section>
   `;
 }
 
-function renderQuestRow(event, side) {
+function renderEventRow(event) {
+  const isBonus = event.type === "bonus";
   const freshClass = event.id === state.lastRenderedEventId ? "fresh-entry" : "";
-  const leftContent =
-    side === "left"
-      ? `
-        <article class="timeline-card quest-chip">
-          <strong class="quest-name">${escapeHtml(event.name)}</strong>
-        </article>
-      `
-      : "";
-  const rightContent =
-    side === "right"
-      ? `
-        <article class="timeline-card quest-chip">
-          <strong class="quest-name">${escapeHtml(event.name)}</strong>
-        </article>
-      `
-      : "";
+  const label = isBonus ? event.label : event.name;
+  const maxFont = isBonus ? 76 : 132;
 
   return `
-    <div class="timeline-row quest-row ${freshClass}" data-event-id="${event.id}">
-      <div class="timeline-side left">${leftContent}</div>
-      <div class="timeline-anchor">
-        <span class="timeline-dot"></span>
-      </div>
-      <div class="timeline-side right">${rightContent}</div>
-    </div>
-  `;
-}
-
-function renderBonusRow(event) {
-  return `
-    <div class="timeline-row bonus-row" data-event-id="${event.id}">
-      <div class="timeline-side left"></div>
-      <div class="timeline-anchor">
-        <div class="bonus-marker" aria-label="Bonus event">
-          ${escapeHtml(event.icon)}
-        </div>
-      </div>
-      <div class="timeline-side right"></div>
-    </div>
+    <article
+      class="stack-row stack-row-event ${isBonus ? "is-bonus" : ""} ${freshClass}"
+      data-event-id="${event.id}"
+    >
+      <strong
+        class="fit-text stack-copy stack-copy-event"
+        data-fit-text
+        data-fit-base="${maxFont}"
+      >
+        <span class="fit-text-inner">${escapeHtml(normalizeStackCopy(label))}</span>
+      </strong>
+    </article>
   `;
 }
 
@@ -392,6 +349,97 @@ function focusEvent(eventId) {
   });
 }
 
+function scheduleFitText() {
+  window.cancelAnimationFrame(fitTextFrame);
+  fitTextFrame = window.requestAnimationFrame(() => {
+    fitTextFrame = 0;
+    fitAllText();
+  });
+}
+
+function fitAllText() {
+  const nodes = document.querySelectorAll("[data-fit-text]");
+
+  for (const node of nodes) {
+    fitTextNode(node);
+  }
+
+  syncFixedLayout();
+}
+
+function fitTextNode(node) {
+  const inner = node.querySelector(".fit-text-inner");
+
+  if (!inner) {
+    return;
+  }
+
+  node.dataset.fitReady = "false";
+  node.style.height = "";
+  inner.style.position = "";
+  inner.style.left = "";
+  inner.style.top = "";
+  inner.style.transform = "";
+  inner.style.fontSize = "";
+
+  const availableWidth = node.clientWidth;
+
+  if (!Number.isFinite(availableWidth) || availableWidth <= 0) {
+    return;
+  }
+
+  const text = inner.textContent.trim();
+
+  if (!text) {
+    return;
+  }
+
+  const baseFont = Number(node.dataset.fitBase || 96);
+  inner.style.fontSize = `${baseFont}px`;
+
+  const naturalWidth = inner.getBoundingClientRect().width;
+  const naturalHeight = inner.getBoundingClientRect().height;
+
+  if (!naturalWidth || !naturalHeight) {
+    return;
+  }
+
+  const safeWidth = Math.max(availableWidth - 0.5, 1);
+  let scale = safeWidth / naturalWidth;
+  const maxHeight = Number(node.dataset.fitHeight || 0);
+
+  if (maxHeight > 0) {
+    scale = Math.min(scale, maxHeight / naturalHeight);
+  }
+
+  scale = Math.max(scale * 0.999, 0.01);
+
+  const align = node.dataset.fitAlign || "left";
+  const scaledWidth = naturalWidth * scale;
+  const offsetX =
+    align === "center" ? Math.max((availableWidth - scaledWidth) / 2, 0) : 0;
+
+  node.dataset.fitReady = "true";
+  node.style.height = `${Math.ceil(naturalHeight * scale)}px`;
+  inner.style.fontSize = `${baseFont}px`;
+  inner.style.transform = `translate(${offsetX}px, 0) scale(${scale})`;
+}
+
+function syncFixedLayout() {
+  const root = document.documentElement;
+
+  if (!ui.stackHeader || !ui.scoreWrap || !ui.timelineView) {
+    return;
+  }
+
+  const headerHeight = Math.ceil(ui.stackHeader.getBoundingClientRect().height);
+  const scoreHeight = Math.ceil(ui.scoreWrap.getBoundingClientRect().height);
+
+  root.style.setProperty("--stack-header-height", `${headerHeight}px`);
+  root.style.setProperty("--score-top", `${headerHeight + 20}px`);
+  root.style.setProperty("--stack-scroll-margin", `${headerHeight + scoreHeight + 44}px`);
+}
+
 function createQuestEvent(quest, timestamp, customId) {
   const eventDate = new Date(timestamp);
 
@@ -401,7 +449,6 @@ function createQuestEvent(quest, timestamp, customId) {
     name: quest.name,
     points: quest.points,
     timestamp: eventDate.toISOString(),
-    displayDayLabel: formatDayLabel(eventDate),
   };
 }
 
@@ -413,35 +460,18 @@ function getRandomQuest(excludeName = "") {
   return { ...randomQuest };
 }
 
-function chooseQuestSide(event, sideLoad, previousQuestSide, sameSideRun) {
-  if (sideLoad.left - sideLoad.right >= 2) {
-    return "right";
-  }
-
-  if (sideLoad.right - sideLoad.left >= 2) {
-    return "left";
-  }
-
-  const preferredSide = hashString(`${event.id}-${event.name}`) % 2 === 0 ? "left" : "right";
-
-  if (sameSideRun >= 2 && preferredSide === previousQuestSide) {
-    return preferredSide === "left" ? "right" : "left";
-  }
-
-  return preferredSide;
-}
-
 function createId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
-function getMonthKey(date) {
-  return date.toLocaleDateString(undefined, { month: "long" });
-}
-
 function formatDayLabel(date) {
   const weekday = date.toLocaleDateString(undefined, { weekday: "long" });
-  return `${weekday} ${date.getDate()}`;
+  const month = date.toLocaleDateString(undefined, { month: "long" });
+  return normalizeStackCopy(`${weekday} ${month} ${date.getDate()}`);
+}
+
+function normalizeStackCopy(value) {
+  return String(value).replace(/\s+/g, " ").trim().toLocaleUpperCase();
 }
 
 function getDayKey(date) {
@@ -487,16 +517,6 @@ function mulberry32(seed) {
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
     return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-function hashString(value) {
-  let hash = 0;
-
-  for (const character of value) {
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  }
-
-  return hash;
 }
 
 function escapeHtml(value) {

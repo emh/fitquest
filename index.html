@@ -7,24 +7,47 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <title>Fitness Quest</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Climate+Crisis&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header class="topbar">
-      <h1>Fitness Quest</h1>
+    <header class="stack-header">
+      <div class="stack-title">
+        <h1
+          class="fit-text stack-copy stack-copy-title"
+          data-fit-text
+          data-fit-base="184"
+          data-fit-height="118"
+        >
+          <span class="fit-text-inner">FITNESS QUEST</span>
+        </h1>
+      </div>
     </header>
 
     <section class="score-wrap" aria-live="polite" aria-atomic="true">
-      <div class="score-card">
-        <span class="score-label">Quest Score</span>
-        <strong id="scoreValue">0</strong>
+      <div class="score-card" aria-label="Quest score">
+        <span class="visually-hidden">Quest Score</span>
+        <strong
+          id="scoreValue"
+          class="fit-text stack-copy stack-copy-score"
+          data-fit-text
+          data-fit-base="104"
+          data-fit-align="center"
+        >
+          <span class="fit-text-inner">0</span>
+        </strong>
       </div>
     </section>
 
     <main class="timeline-view">
       <section
         id="timeline"
-        class="timeline"
+        class="quest-stack"
         aria-label="Fitness Quest activity timeline"
       ></section>
     </main>
@@ -35,7 +58,7 @@
       type="button"
       aria-label="Start a new quest"
     >
-      +
+      <span aria-hidden="true">+</span>
     </button>
 
     <div
