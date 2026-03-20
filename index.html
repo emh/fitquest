@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Fitness Quest</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Fitness Quest</h1>
+    </header>
+
+    <section class="score-wrap" aria-live="polite" aria-atomic="true">
+      <div class="score-card">
+        <span class="score-label">Quest Score</span>
+        <strong id="scoreValue">0</strong>
+      </div>
+    </section>
+
+    <main class="timeline-view">
+      <section
+        id="timeline"
+        class="timeline"
+        aria-label="Fitness Quest activity timeline"
+      ></section>
+    </main>
+
+    <button
+      id="questButton"
+      class="quest-fab"
+      type="button"
+      aria-label="Start a new quest"
+    >
+      +
+    </button>
+
+    <div
+      id="questModal"
+      class="quest-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="questTitle"
+      aria-hidden="true"
+    >
+      <div class="quest-sheet">
+        <h2 id="questTitle">10 Pushups</h2>
+
+        <div class="sheet-actions">
+          <button id="rejectButton" class="action-button action-ghost" type="button">
+            Reject
+          </button>
+          <button id="rerollButton" class="action-button action-muted" type="button">
+            Reroll
+          </button>
+          <button id="acceptButton" class="action-button action-primary" type="button">
+            Accept
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="feedback" class="feedback" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
