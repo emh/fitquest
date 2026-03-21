@@ -1,7 +1,12 @@
 const STORAGE_KEY = "fitness-quest-v0";
-const REROLL_PENALTY = 2;
-const REJECT_PENALTY = 3;
 const TIMELINE_WINDOW_DAYS = 30;
+const ROLL_SEQUENCE_LENGTH = 20;
+const ROLL_DURATION_MS = 900;
+const SCORE_POPUP_MS = 1100;
+const REROLL_COST = 2;
+const REJECT_COST = 5;
+const REEL_FONT_MIN = 84;
+const REEL_FONT_MAX = 108;
 
 const QUEST_LIBRARY = [
   { name: "10 Pushups", points: 10 },
@@ -32,8 +37,7 @@ const ui = {
   scoreValue: document.querySelector("#scoreValue"),
   scoreWrap: document.querySelector(".score-wrap"),
   questButton: document.querySelector("#questButton"),
-  questModal: document.querySelector("#questModal"),
-  questTitle: document.querySelector("#questTitle"),
+  questControls: document.querySelector("#questControls"),
   acceptButton: document.querySelector("#acceptButton"),
   rejectButton: document.querySelector("#rejectButton"),
   rerollButton: document.querySelector("#rerollButton"),
@@ -43,13 +47,16 @@ const ui = {
 const state = {
   score: 0,
   events: [],
-  activeQuest: null,
+  pendingQuest: null,
+  launchQuestPlan: null,
   lastRenderedEventId: null,
   hasInitialFocus: false,
+  isStartingQuest: false,
 };
 
 let feedbackTimer = 0;
 let fitTextFrame = 0;
+let reelAnimation = null;
 
 initialize();
 
@@ -57,11 +64,11 @@ function initialize() {
   loadState();
   bindEvents();
   render();
-  focusLatestOnce();
 
   if (document.fonts?.ready) {
     document.fonts.ready.then(() => {
       scheduleFitText();
+      scrollToDocumentBottom("auto");
     });
   }
 }
@@ -153,69 +160,87 @@ function createSeedState() {
 }
 
 function openQuestFlow() {
-  if (!state.activeQuest) {
-    state.activeQuest = getRandomQuest();
-  }
-
-  renderQuestModal();
-}
-
-function acceptQuest() {
-  if (!state.activeQuest) {
+  if (state.pendingQuest || state.isStartingQuest) {
     return;
   }
 
-  const completedAt = new Date();
-  const event = createQuestEvent(state.activeQuest, completedAt);
+  state.launchQuestPlan = createQuestLaunchPlan();
+  state.isStartingQuest = true;
+  render();
+  scrollToBottomThen(() => {
+    state.isStartingQuest = false;
+    state.pendingQuest = state.launchQuestPlan;
+    state.launchQuestPlan = null;
+    render();
+  });
+}
 
+function beginQuestRoll(excludeName = "") {
+  cancelQuestReel();
+  const currentSlotId = state.pendingQuest?.slotId || createId("pending");
+  state.pendingQuest = createQuestLaunchPlan(excludeName, currentSlotId);
+
+  render();
+  scrollToDocumentBottom("auto");
+}
+
+function acceptQuest() {
+  if (!state.pendingQuest || state.pendingQuest.isRolling) {
+    return;
+  }
+
+  const event = createQuestEvent(state.pendingQuest.quest, new Date());
+
+  cancelQuestReel();
   state.events.push(event);
   state.events.sort(sortByTimestamp);
-  state.score += state.activeQuest.points;
+  state.score += event.points;
   state.lastRenderedEventId = event.id;
-  state.activeQuest = null;
+  state.pendingQuest = null;
 
   persistState();
-  closeQuestModal();
   render();
-  showFeedback(`+${event.points} score | ${event.name}`);
+  showFeedback(formatScoreDelta(event.points));
   focusEvent(event.id);
 }
 
 function rejectQuest() {
-  if (!state.activeQuest) {
+  if (!state.pendingQuest) {
     return;
   }
 
-  applyPenalty(REJECT_PENALTY);
-  const questName = state.activeQuest.name;
-  state.activeQuest = null;
-
+  cancelQuestReel();
+  state.score -= REJECT_COST;
+  state.pendingQuest = null;
   persistState();
-  closeQuestModal();
   render();
-  showFeedback(`-${REJECT_PENALTY} score | Rejected ${questName}`);
+  showFeedback(formatScoreDelta(-REJECT_COST));
 }
 
 function rerollQuest() {
-  const previousQuest = state.activeQuest;
-
-  if (!previousQuest) {
+  if (!state.pendingQuest) {
     return;
   }
 
-  applyPenalty(REROLL_PENALTY);
-  state.activeQuest = getRandomQuest(previousQuest.name);
-
+  state.score -= REROLL_COST;
   persistState();
-  render();
-  showFeedback(`-${REROLL_PENALTY} score | Rerolled quest`);
-}
-
-function applyPenalty(value) {
-  state.score = Math.max(0, state.score - value);
+  beginQuestRoll(state.pendingQuest.quest?.name || "");
+  showFeedback(formatScoreDelta(-REROLL_COST));
 }
 
 function render() {
+  updateScoreDisplay();
+  ui.timeline.innerHTML = buildTimelineMarkup();
+  syncQuestControls();
+  state.lastRenderedEventId = null;
+  scheduleFitText();
+
+  if (state.pendingQuest?.isRolling) {
+    playPendingQuestReel(state.pendingQuest.rollId);
+  }
+}
+
+function updateScoreDisplay() {
   const scoreInner = ui.scoreValue.querySelector(".fit-text-inner");
 
   if (scoreInner) {
@@ -223,37 +248,18 @@ function render() {
   } else {
     ui.scoreValue.textContent = state.score.toLocaleString();
   }
-
-  ui.timeline.innerHTML = buildTimelineMarkup();
-  state.lastRenderedEventId = null;
-  renderQuestModal();
-  scheduleFitText();
 }
 
-function closeQuestModal() {
-  ui.questModal.classList.remove("is-open");
-  ui.questModal.setAttribute("aria-hidden", "true");
-  window.requestAnimationFrame(() => {
-    ui.questButton.focus();
-  });
-}
+function syncQuestControls() {
+  const hasPendingQuest = Boolean(state.pendingQuest);
+  const isRolling = Boolean(state.pendingQuest?.isRolling);
 
-function renderQuestModal() {
-  const isOpen = Boolean(state.activeQuest);
-
-  ui.questModal.classList.toggle("is-open", isOpen);
-  ui.questModal.setAttribute("aria-hidden", String(!isOpen));
-
-  if (!isOpen) {
-    return;
-  }
-
-  const quest = state.activeQuest;
-  ui.questTitle.textContent = quest.name;
-
-  window.requestAnimationFrame(() => {
-    ui.acceptButton.focus();
-  });
+  ui.questButton.classList.toggle("is-hidden", hasPendingQuest || state.isStartingQuest);
+  ui.questButton.disabled = state.isStartingQuest;
+  ui.questControls.classList.toggle("is-visible", hasPendingQuest);
+  ui.acceptButton.disabled = !hasPendingQuest || isRolling;
+  ui.rerollButton.disabled = !hasPendingQuest;
+  ui.rejectButton.disabled = !hasPendingQuest;
 }
 
 function buildTimelineMarkup() {
@@ -271,6 +277,26 @@ function buildTimelineMarkup() {
     }
 
     rows.push(renderEventRow(event));
+  }
+
+  if (state.pendingQuest) {
+    const pendingDate = new Date();
+    const pendingDayKey = getDayKey(pendingDate);
+
+    if (pendingDayKey !== currentDayKey) {
+      rows.push(renderDateRow(formatDayLabel(pendingDate)));
+    }
+
+    rows.push(renderPendingQuestRow(state.pendingQuest));
+  } else if (state.isStartingQuest && state.launchQuestPlan) {
+    const pendingDate = new Date();
+    const pendingDayKey = getDayKey(pendingDate);
+
+    if (pendingDayKey !== currentDayKey) {
+      rows.push(renderDateRow(formatDayLabel(pendingDate)));
+    }
+
+    rows.push(renderLaunchPlaceholderRow(state.launchQuestPlan));
   }
 
   return rows.join("");
@@ -294,7 +320,7 @@ function renderEventRow(event) {
   const isBonus = event.type === "bonus";
   const freshClass = event.id === state.lastRenderedEventId ? "fresh-entry" : "";
   const label = isBonus ? event.label : event.name;
-  const maxFont = isBonus ? 76 : 132;
+  const baseFont = isBonus ? 76 : 132;
 
   return `
     <article
@@ -304,12 +330,143 @@ function renderEventRow(event) {
       <strong
         class="fit-text stack-copy stack-copy-event"
         data-fit-text
-        data-fit-base="${maxFont}"
+        data-fit-base="${baseFont}"
       >
         <span class="fit-text-inner">${escapeHtml(normalizeStackCopy(label))}</span>
       </strong>
     </article>
   `;
+}
+
+function renderPendingQuestRow(pendingQuest) {
+  const slotStyle = `style="height:${pendingQuest.reservedHeight}px; --reel-font-size:${pendingQuest.reelFontSize}px"`;
+
+  if (pendingQuest.isRolling) {
+    return `
+      <article class="stack-row stack-row-pending" data-pending-slot="${pendingQuest.slotId}" ${slotStyle}>
+        <div class="quest-reel">
+          <div class="quest-reel-track" data-roll-id="${pendingQuest.rollId}">
+            ${pendingQuest.sequence
+              .map(
+                (quest, index) => `
+                  <span class="quest-reel-item" data-roll-index="${index}">
+                    ${escapeHtml(normalizeStackCopy(quest.name))}
+                  </span>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
+      </article>
+    `;
+  }
+
+  return `
+    <article
+      class="stack-row stack-row-event stack-row-pending"
+      data-pending-slot="${pendingQuest.slotId}"
+      ${slotStyle}
+    >
+      <strong
+        class="fit-text stack-copy stack-copy-event"
+        data-fit-text
+        data-fit-base="132"
+      >
+        <span class="fit-text-inner">${escapeHtml(normalizeStackCopy(pendingQuest.quest.name))}</span>
+      </strong>
+    </article>
+  `;
+}
+
+function renderLaunchPlaceholderRow(launchQuestPlan) {
+  return `
+    <article
+      class="stack-row stack-row-pending"
+      data-launch-slot="${launchQuestPlan.slotId}"
+      style="height:${launchQuestPlan.reservedHeight}px"
+      aria-hidden="true"
+    ></article>
+  `;
+}
+
+function playPendingQuestReel(rollId) {
+  window.requestAnimationFrame(() => {
+    const pendingQuest = state.pendingQuest;
+
+    if (!pendingQuest || !pendingQuest.isRolling || pendingQuest.rollId !== rollId) {
+      return;
+    }
+
+    const slot = ui.timeline.querySelector(`[data-pending-slot="${pendingQuest.slotId}"]`);
+    const track = slot?.querySelector(`[data-roll-id="${rollId}"]`);
+    const finalItem = track?.querySelector(
+      `[data-roll-index="${pendingQuest.sequence.length - 1}"]`
+    );
+
+    if (!track || !finalItem) {
+      settlePendingQuest(rollId);
+      return;
+    }
+
+    const endOffset = -Math.max(finalItem.offsetLeft - 2, 0);
+
+    cancelQuestReel();
+    reelAnimation = track.animate(
+      [
+        { transform: "translateX(0px)" },
+        { transform: `translateX(${endOffset}px)` },
+      ],
+      {
+        duration: ROLL_DURATION_MS,
+        easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+        fill: "forwards",
+      }
+    );
+
+    reelAnimation.onfinish = () => {
+      reelAnimation = null;
+      settlePendingQuest(rollId);
+    };
+    reelAnimation.oncancel = () => {
+      reelAnimation = null;
+    };
+  });
+}
+
+function settlePendingQuest(rollId) {
+  if (!state.pendingQuest || state.pendingQuest.rollId !== rollId) {
+    return;
+  }
+
+  state.pendingQuest = {
+    ...state.pendingQuest,
+    reservedHeight: state.pendingQuest.finalHeight,
+    isRolling: false,
+  };
+
+  render();
+  scrollToDocumentBottom("auto");
+}
+
+function cancelQuestReel() {
+  if (!reelAnimation) {
+    return;
+  }
+
+  reelAnimation.cancel();
+  reelAnimation = null;
+}
+
+function buildQuestRollSequence(excludeName = "") {
+  const sequence = [];
+
+  for (let index = 0; index < ROLL_SEQUENCE_LENGTH - 1; index += 1) {
+    sequence.push(getRandomQuest());
+  }
+
+  sequence.push(getRandomQuest(excludeName));
+
+  return sequence;
 }
 
 function showFeedback(message) {
@@ -319,33 +476,93 @@ function showFeedback(message) {
 
   feedbackTimer = window.setTimeout(() => {
     ui.feedback.classList.remove("is-visible");
-  }, 1800);
+  }, SCORE_POPUP_MS);
 }
 
-function focusLatestOnce() {
-  if (state.hasInitialFocus || !state.events.length) {
-    return;
-  }
-
-  state.hasInitialFocus = true;
-
-  window.requestAnimationFrame(() => {
-    const eventRows = ui.timeline.querySelectorAll("[data-event-id]");
-    const latestRow = eventRows[eventRows.length - 1];
-
-    if (latestRow) {
-      latestRow.scrollIntoView({ block: "center", behavior: "auto" });
-    }
-  });
+function formatScoreDelta(value) {
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${value}`;
 }
 
 function focusEvent(eventId) {
   window.requestAnimationFrame(() => {
-    const element = ui.timeline.querySelector(`[data-event-id="${eventId}"]`);
+    window.requestAnimationFrame(() => {
+      const element = ui.timeline.querySelector(`[data-event-id="${eventId}"]`);
 
-    if (element) {
-      element.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (!element) {
+        return;
+      }
+
+      const rect = element.getBoundingClientRect();
+      const topClearance = getCssPixelValue("--stack-scroll-margin", 0);
+      const bottomClearance = getCssPixelValue("--controls-clearance", 118);
+      const visibleTop = topClearance;
+      const visibleBottom = window.innerHeight - bottomClearance;
+      const maxScrollTop = Math.max(
+        document.documentElement.scrollHeight - window.innerHeight,
+        0
+      );
+      let targetTop = null;
+
+      if (rect.bottom > visibleBottom) {
+        targetTop = window.scrollY + rect.bottom - visibleBottom;
+      } else if (rect.top < visibleTop) {
+        targetTop = window.scrollY + rect.top - visibleTop;
+      }
+
+      if (targetTop === null) {
+        return;
+      }
+
+      window.scrollTo({
+        top: clamp(targetTop, 0, maxScrollTop),
+        behavior: "smooth",
+      });
+    });
+  });
+}
+
+function scrollToBottomThen(callback) {
+  window.requestAnimationFrame(() => {
+    const targetTop = Math.max(
+      document.documentElement.scrollHeight - window.innerHeight,
+      0
+    );
+    const startTime = performance.now();
+    let settledFrames = 0;
+
+    if (Math.abs(window.scrollY - targetTop) < 2) {
+      callback();
+      return;
     }
+
+    window.scrollTo({
+      top: targetTop,
+      behavior: "smooth",
+    });
+
+    function waitForBottom() {
+      const remaining = Math.abs(window.scrollY - targetTop);
+
+      if (remaining < 2) {
+        settledFrames += 1;
+        if (settledFrames >= 2) {
+          callback();
+          return;
+        }
+      } else {
+        settledFrames = 0;
+      }
+
+      if (performance.now() - startTime > 1200) {
+        callback();
+        return;
+      }
+
+      window.requestAnimationFrame(waitForBottom);
+    }
+
+    window.requestAnimationFrame(waitForBottom);
   });
 }
 
@@ -438,17 +655,110 @@ function syncFixedLayout() {
   root.style.setProperty("--stack-header-height", `${headerHeight}px`);
   root.style.setProperty("--score-top", `${headerHeight + 20}px`);
   root.style.setProperty("--stack-scroll-margin", `${headerHeight + scoreHeight + 44}px`);
+
+  if (!state.hasInitialFocus) {
+    state.hasInitialFocus = true;
+    scrollToDocumentBottom("auto");
+  }
+}
+
+function createQuestLaunchPlan(excludeName = "", slotId = createId("pending")) {
+  const sequence = buildQuestRollSequence(excludeName);
+  const quest = sequence[sequence.length - 1];
+  const finalMetrics = measureQuestDisplayMetrics(quest.name);
+  const reelFontSize = getFixedReelFontSize();
+  const reelHeight = measureReelSlotHeight(reelFontSize);
+
+  return {
+    slotId,
+    rollId: createId("roll"),
+    sequence,
+    quest,
+    isRolling: true,
+    reservedHeight: reelHeight,
+    finalHeight: finalMetrics.height,
+    reelFontSize,
+  };
+}
+
+function measureQuestDisplayMetrics(label) {
+  const availableWidth = ui.timeline.clientWidth || ui.timelineView.clientWidth || window.innerWidth;
+  const baseFont = 132;
+  const text = normalizeStackCopy(label);
+  const { naturalWidth, naturalHeight } = measureTextProbe(text, baseFont);
+
+  if (!naturalWidth || !naturalHeight) {
+    return {
+      height: 120,
+      fontSize: 120,
+    };
+  }
+
+  const scale = Math.max(((availableWidth - 0.5) / naturalWidth) * 0.999, 0.01);
+  return {
+    height: Math.ceil(naturalHeight * scale),
+    fontSize: baseFont * scale,
+  };
+}
+
+function getFixedReelFontSize() {
+  const availableWidth = ui.timeline.clientWidth || ui.timelineView.clientWidth || window.innerWidth;
+  return Math.round(clamp(availableWidth * 0.18, REEL_FONT_MIN, REEL_FONT_MAX));
+}
+
+function measureReelSlotHeight(reelFontSize) {
+  const sample = "QJMWY";
+  const { naturalHeight } = measureTextProbe(sample, reelFontSize);
+
+  if (!naturalHeight) {
+    return reelFontSize;
+  }
+
+  return Math.ceil(naturalHeight + 2);
+}
+
+function measureTextProbe(text, fontSize) {
+  const probe = document.createElement("span");
+
+  probe.textContent = text;
+  probe.className = "stack-copy stack-copy-event";
+  probe.style.position = "fixed";
+  probe.style.left = "-9999px";
+  probe.style.top = "0";
+  probe.style.visibility = "hidden";
+  probe.style.fontSize = `${fontSize}px`;
+  probe.style.whiteSpace = "nowrap";
+
+  document.body.append(probe);
+  const naturalWidth = probe.getBoundingClientRect().width;
+  const naturalHeight = probe.getBoundingClientRect().height;
+  probe.remove();
+
+  return { naturalWidth, naturalHeight };
+}
+
+function getCssPixelValue(name, fallback = 0) {
+  const value = window.getComputedStyle(document.documentElement).getPropertyValue(name);
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function scrollToDocumentBottom(behavior = "smooth") {
+  window.requestAnimationFrame(() => {
+    window.scrollTo({
+      top: document.documentElement.scrollHeight,
+      behavior,
+    });
+  });
 }
 
 function createQuestEvent(quest, timestamp, customId) {
-  const eventDate = new Date(timestamp);
-
   return {
     id: customId || createId("quest"),
     type: "quest",
     name: quest.name,
     points: quest.points,
-    timestamp: eventDate.toISOString(),
+    timestamp: new Date(timestamp).toISOString(),
   };
 }
 
@@ -517,6 +827,10 @@ function mulberry32(seed) {
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
     return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function escapeHtml(value) {

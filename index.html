@@ -61,29 +61,31 @@
       <span aria-hidden="true">+</span>
     </button>
 
-    <div
-      id="questModal"
-      class="quest-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="questTitle"
-      aria-hidden="true"
-    >
-      <div class="quest-sheet">
-        <h2 id="questTitle">10 Pushups</h2>
-
-        <div class="sheet-actions">
-          <button id="rejectButton" class="action-button action-ghost" type="button">
-            Reject
-          </button>
-          <button id="rerollButton" class="action-button action-muted" type="button">
-            Reroll
-          </button>
-          <button id="acceptButton" class="action-button action-primary" type="button">
-            Accept
-          </button>
-        </div>
-      </div>
+    <div id="questControls" class="quest-controls" aria-label="Quest actions">
+      <button
+        id="acceptButton"
+        class="quest-action quest-action-accept"
+        type="button"
+        aria-label="Accept quest"
+      >
+        <span aria-hidden="true">✓</span>
+      </button>
+      <button
+        id="rerollButton"
+        class="quest-action quest-action-reroll"
+        type="button"
+        aria-label="Reroll quest"
+      >
+        <span aria-hidden="true">↻</span>
+      </button>
+      <button
+        id="rejectButton"
+        class="quest-action quest-action-reject"
+        type="button"
+        aria-label="Reject quest"
+      >
+        <span aria-hidden="true">✕</span>
+      </button>
     </div>
 
     <div id="feedback" class="feedback" aria-live="polite" aria-atomic="true"></div>
