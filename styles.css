@@ -20,6 +20,7 @@
   --draft-keyboard-clearance: 0px;
   --controls-keyboard-offset: 0px;
   --timeline-content-offset: 0px;
+  --desktop-max-width: 800px;
   --stack-header-height:
     calc(
       env(safe-area-inset-top) + var(--title-pad-y) + var(--title-band-height) +
@@ -619,5 +620,19 @@ button {
 
   .quest-reel-item {
     font-size: var(--reel-font-size, clamp(3.4rem, 10vw, 7.4rem));
+  }
+}
+
+@media (min-width: 800px) {
+  .stack-header {
+    left: 50%;
+    right: auto;
+    width: min(100%, var(--desktop-max-width));
+    transform: translateX(-50%);
+  }
+
+  .timeline-view {
+    width: min(100%, var(--desktop-max-width));
+    margin-inline: auto;
   }
 }
