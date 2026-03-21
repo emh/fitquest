@@ -12,10 +12,13 @@
   --shadow: 0 18px 36px rgba(17, 17, 17, 0.18);
   --content-inset: 10px;
   --title-pad-y: 10px;
+  --header-action-size: 40px;
   --title-band-height: clamp(78px, 21vw, 126px);
   --score-height: 78px;
   --score-gap: 20px;
   --controls-clearance: 118px;
+  --draft-keyboard-clearance: 0px;
+  --controls-keyboard-offset: 0px;
   --stack-header-height:
     calc(
       env(safe-area-inset-top) + var(--title-pad-y) + var(--title-band-height) +
@@ -30,15 +33,19 @@
 }
 
 html {
-  scroll-behavior: smooth;
+  height: 100%;
   overflow-x: hidden;
+  overflow-y: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
+  height: 100%;
   min-height: 100vh;
   min-height: 100svh;
-  overflow-x: hidden;
+  overflow: hidden;
   font-family: "Climate Crisis", "Arial Black", sans-serif;
   color: var(--ink);
   background: var(--paper);
@@ -93,6 +100,9 @@ button {
   position: fixed;
   inset: 0 0 auto;
   z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   padding: calc(env(safe-area-inset-top) + var(--title-pad-y)) var(--content-inset)
     var(--title-pad-y);
   background: var(--paper);
@@ -100,11 +110,63 @@ button {
 }
 
 .stack-title {
+  flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+}
+
+.is-library-view .header-action {
+  order: -1;
 }
 
 .stack-copy-title {
   color: var(--signal);
+}
+
+.header-action {
+  pointer-events: auto;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--header-action-size);
+  height: var(--header-action-size);
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  border-radius: 999px;
+  color: #fffaf7;
+  background: linear-gradient(180deg, var(--signal) 0%, var(--signal-dark) 100%);
+  box-shadow: 0 14px 24px rgba(183, 31, 23, 0.24);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.header-action-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Avenir Next", "Segoe UI Symbol", "Helvetica Neue", sans-serif;
+  font-size: calc(var(--header-action-size) * 0.54);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.header-action-icon svg {
+  display: block;
+  width: calc(var(--header-action-size) * 0.5);
+  height: calc(var(--header-action-size) * 0.5);
+}
+
+.header-action:disabled {
+  opacity: 0.34;
+  box-shadow: none;
+}
+
+.header-action:not(:disabled):active {
+  transform: scale(0.96);
 }
 
 .score-wrap {
@@ -114,6 +176,10 @@ button {
   z-index: 55;
   width: min(176px, calc(100vw - 132px));
   transform: translateX(-50%);
+}
+
+.is-library-view .score-wrap {
+  display: none;
 }
 
 .score-card {
@@ -135,12 +201,17 @@ button {
 }
 
 .timeline-view {
+  height: 100%;
   padding:
     var(--stack-header-height)
     var(--content-inset)
-    calc(var(--controls-clearance) + env(safe-area-inset-bottom))
+    calc(var(--controls-clearance) + env(safe-area-inset-bottom) + var(--draft-keyboard-clearance))
     var(--content-inset);
+  overflow-x: hidden;
+  overflow-y: auto;
   overflow-anchor: none;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .quest-stack {
@@ -173,6 +244,10 @@ button {
   scroll-margin-bottom: var(--controls-clearance);
 }
 
+.stack-row-library {
+  cursor: pointer;
+}
+
 .stack-copy-date {
   color: var(--signal);
   opacity: 1;
@@ -188,6 +263,14 @@ button {
 
 .stack-row-event.is-bonus .stack-copy-event {
   color: var(--ink-soft);
+}
+
+.stack-row-library.is-selected .stack-copy-event {
+  color: var(--accept);
+}
+
+.stack-row-library.is-inactive:not(.is-selected) .stack-copy-event {
+  color: #6f6f6f;
 }
 
 .fresh-entry .stack-copy-event {
@@ -212,7 +295,7 @@ button {
 .quest-fab {
   position: fixed;
   left: 50%;
-  bottom: calc(40px + env(safe-area-inset-bottom));
+  bottom: calc(40px + env(safe-area-inset-bottom) + var(--controls-keyboard-offset));
   z-index: 60;
   display: flex;
   align-items: center;
@@ -251,7 +334,7 @@ button {
 .quest-controls {
   position: fixed;
   left: 50%;
-  bottom: calc(34px + env(safe-area-inset-bottom));
+  bottom: calc(34px + env(safe-area-inset-bottom) + var(--controls-keyboard-offset));
   z-index: 70;
   display: flex;
   justify-content: center;
@@ -303,6 +386,37 @@ button {
   background: linear-gradient(180deg, var(--reroll) 0%, var(--reroll-dark) 100%);
 }
 
+.quest-action-toggle {
+  background: linear-gradient(180deg, var(--accept) 0%, var(--accept-dark) 100%);
+}
+
+.quest-action-toggle.is-inactive {
+  background: linear-gradient(180deg, #2c2c2c 0%, #111111 100%);
+}
+
+.quest-action-toggle span {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.quest-action-delete {
+  background: linear-gradient(180deg, #2c2c2c 0%, #111111 100%);
+}
+
+.quest-action-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quest-action-icon svg {
+  display: block;
+  width: 1.6rem;
+  height: 1.6rem;
+  overflow: visible;
+}
+
 .quest-action-reject {
   background: linear-gradient(180deg, var(--signal) 0%, var(--signal-dark) 100%);
 }
@@ -344,6 +458,36 @@ button {
   white-space: nowrap;
 }
 
+.quest-editor-shell {
+  display: block;
+  width: 100%;
+}
+
+.quest-editor-input {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--accept);
+  caret-color: var(--accept);
+  font-family: "Climate Crisis", "Arial Black", sans-serif;
+  line-height: 0.9;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.quest-editor-input::placeholder {
+  color: var(--accept);
+  opacity: 1;
+}
+
+.quest-editor-input::selection {
+  color: #fffaf7;
+  background: rgba(25, 154, 74, 0.92);
+}
+
 .feedback {
   position: fixed;
   left: 50%;
@@ -370,6 +514,11 @@ button {
 .feedback.is-visible {
   opacity: 1;
   transform: translate(-50%, -6px) scale(1);
+}
+
+.is-library-view .feedback {
+  opacity: 0;
+  pointer-events: none;
 }
 
 @media (min-width: 700px) {
