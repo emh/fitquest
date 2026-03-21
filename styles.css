@@ -16,7 +16,7 @@
   --title-band-height: clamp(78px, 21vw, 126px);
   --score-height: 78px;
   --score-gap: 20px;
-  --controls-clearance: 118px;
+  --controls-clearance: 0px;
   --draft-keyboard-clearance: 0px;
   --controls-keyboard-offset: 0px;
   --stack-header-height:

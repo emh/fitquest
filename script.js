@@ -6,6 +6,7 @@ const SCORE_POPUP_MS = 1100;
 const REROLL_COST = 2;
 const REJECT_COST = 5;
 const QUEST_POINTS = 10;
+const ACTIVE_CONTROLS_CLEARANCE = 118;
 const IOS_INPUT_MIN_FONT_SIZE = 16;
 const REEL_FONT_MIN = 84;
 const REEL_FONT_MAX = 108;
@@ -311,7 +312,7 @@ function rejectQuest() {
   state.score -= REJECT_COST;
   state.pendingQuest = null;
   persistState();
-  render();
+  renderTimelinePinnedToBottom();
   showFeedback(formatScoreDelta(-REJECT_COST));
 }
 
@@ -548,6 +549,10 @@ function syncControls() {
   const selectedQuest = getSelectedLibraryQuest();
   const hasLibraryDraft = Boolean(state.libraryDraftQuest);
   const hasLibrarySelection = Boolean(selectedQuest) && !hasLibraryDraft;
+  const hasBottomControls =
+    (!isLibraryView && hasPendingQuest) || (isLibraryView && (hasLibrarySelection || hasLibraryDraft));
+
+  setControlsClearance(hasBottomControls ? ACTIVE_CONTROLS_CLEARANCE : 0);
 
   ui.questButton.classList.toggle(
     "is-hidden",
@@ -1095,6 +1100,13 @@ function syncLibraryDraftViewportClearance() {
 function setDraftKeyboardClearance(value) {
   document.documentElement.style.setProperty(
     "--draft-keyboard-clearance",
+    `${Math.max(0, Math.ceil(value))}px`
+  );
+}
+
+function setControlsClearance(value) {
+  document.documentElement.style.setProperty(
+    "--controls-clearance",
     `${Math.max(0, Math.ceil(value))}px`
   );
 }
