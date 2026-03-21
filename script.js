@@ -1,5 +1,6 @@
-const STORAGE_KEY = "fitness-quest-v0";
-const TIMELINE_WINDOW_DAYS = 30;
+const STORAGE_KEY = "fitness-quest-v2";
+const LEGACY_STORAGE_KEYS = ["fitness-quest-v0", "fitness-quest-v1"];
+const SERVICE_WORKER_URL = "./service-worker.js";
 const ROLL_SEQUENCE_LENGTH = 20;
 const ROLL_DURATION_MS = 900;
 const SCORE_POPUP_MS = 1100;
@@ -12,25 +13,38 @@ const REEL_FONT_MIN = 84;
 const REEL_FONT_MAX = 108;
 
 const DEFAULT_QUEST_LIBRARY = [
-  { id: "quest-10-pushups", name: "10 Pushups", active: true },
-  { id: "quest-20-pushups", name: "20 Pushups", active: true },
-  { id: "quest-flight-of-stairs", name: "Flight of Stairs", active: true },
-  { id: "quest-horse-stance", name: "Horse Stance", active: true },
-  { id: "quest-single-leg-balance", name: "Single Leg Balance", active: true },
-  { id: "quest-20-kb-swings", name: "20 KB Swings", active: true },
-  { id: "quest-50m-sprint", name: "50m Sprint", active: true },
-  { id: "quest-wall-sit", name: "Wall Sit", active: true },
-  { id: "quest-jump-rope-burst", name: "Jump Rope Burst", active: true },
-  { id: "quest-walking-lunges", name: "Walking Lunges", active: true },
-  { id: "quest-plank-hold", name: "Plank Hold", active: true },
-  { id: "quest-band-pull-aparts", name: "Band Pull-Aparts", active: true },
-];
-
-const BONUS_LIBRARY = [
-  { icon: "??", label: "Strength bonus" },
-  { icon: "??", label: "Sprint bonus" },
-  { icon: "??", label: "Streak bonus" },
-  { icon: "??", label: "Momentum bonus" },
+  { id: "quest-15-pushups", name: "15 pushups", active: true },
+  { id: "quest-25-air-squats", name: "25 air squats", active: true },
+  { id: "quest-10-burpees", name: "10 burpees", active: true },
+  { id: "quest-25-kettlebell-swings-24kg", name: "25 kettlebell swings (24kg)", active: true },
+  { id: "quest-10-kettlebell-snatches-24kg", name: "10 kettlebell snatches (24kg)", active: true },
+  {
+    id: "quest-10-kettlebell-goblet-squats-24kg",
+    name: "10 kettlebell goblet squats (24kg)",
+    active: true,
+  },
+  { id: "quest-50-alternating-mace-360-6kg", name: "50 alternating mace 360 (6kg)", active: true },
+  { id: "quest-10-banded-pullups-blue", name: "10 banded pullups (blue)", active: true },
+  { id: "quest-10-ring-rows", name: "10 ring rows", active: true },
+  { id: "quest-1min-heavy-bag", name: "1min heavy bag", active: true },
+  { id: "quest-1min-horse-stance", name: "1min horse stance", active: true },
+  { id: "quest-30-30s-iso-lunges", name: "30/30s iso lunges", active: true },
+  { id: "quest-1min-passive-bar-hang", name: "1min passive bar hang", active: true },
+  { id: "quest-1min-plank", name: "1min plank", active: true },
+  { id: "quest-30-30s-side-plank", name: "30/30s side plank", active: true },
+  {
+    id: "quest-10-10-kb-single-leg-deadlift-24kg",
+    name: "10/10 kb single leg deadlift (24kg)",
+    active: true,
+  },
+  {
+    id: "quest-10-10-kb-bulgarian-split-squat-24kg",
+    name: "10/10 kb bulgarian split squat (24kg)",
+    active: true,
+  },
+  { id: "quest-1min-deep-squat", name: "1min deep squat", active: true },
+  { id: "quest-5-ab-wheel", name: "5 ab wheel", active: true },
+  { id: "quest-10-10-hand-gripper-l1", name: "10/10 hand gripper (L1)", active: true },
 ];
 
 const ui = {
@@ -83,13 +97,17 @@ let draftViewportTimer = 0;
 let clearDraftViewportObserver = null;
 let afterLayoutCallbacks = [];
 let storageAvailable = true;
+let shouldReloadForServiceWorkerUpdate = false;
+let hasReloadedForServiceWorker = false;
 
 initialize();
 
 function initialize() {
+  clearLegacyStorage();
   loadState();
   bindEvents();
   render();
+  registerServiceWorker();
 
   if (document.fonts?.ready) {
     document.fonts.ready.then(() => {
@@ -128,10 +146,7 @@ function loadState() {
   const saved = readStorageItem(STORAGE_KEY);
 
   if (!saved) {
-    const seededState = createSeedState(DEFAULT_QUEST_LIBRARY);
-    state.score = seededState.score;
-    state.events = seededState.events;
-    state.questLibrary = cloneQuestLibrary(DEFAULT_QUEST_LIBRARY);
+    resetState();
     persistState();
     return;
   }
@@ -142,12 +157,15 @@ function loadState() {
     state.questLibrary = sanitizeQuestLibrary(parsed.questLibrary);
     state.score = deriveScore(parsed.score, parsed.events, state.events);
   } catch (error) {
-    const seededState = createSeedState(DEFAULT_QUEST_LIBRARY);
-    state.score = seededState.score;
-    state.events = seededState.events;
-    state.questLibrary = cloneQuestLibrary(DEFAULT_QUEST_LIBRARY);
+    resetState();
     persistState();
   }
+}
+
+function resetState() {
+  state.score = 0;
+  state.events = [];
+  state.questLibrary = cloneQuestLibrary(DEFAULT_QUEST_LIBRARY);
 }
 
 function persistState() {
@@ -159,54 +177,6 @@ function persistState() {
       questLibrary: state.questLibrary,
     })
   );
-}
-
-function createSeedState(questLibrary) {
-  const rng = mulberry32(20260319);
-  const today = startOfDay(new Date());
-  const seedEnd = addDays(today, -1);
-  const start = addDays(seedEnd, -(TIMELINE_WINDOW_DAYS - 1));
-  const events = [];
-  let questScore = 0;
-  let bonusCounter = 0;
-  const activeLibrary = getActiveQuestLibrary(questLibrary);
-
-  for (let index = 0; index < TIMELINE_WINDOW_DAYS; index += 1) {
-    const day = addDays(start, index);
-    const questCount = 3 + Math.floor(rng() * 5);
-
-    for (let questIndex = 0; questIndex < questCount; questIndex += 1) {
-      const quest =
-        activeLibrary[Math.floor(rng() * activeLibrary.length)] || DEFAULT_QUEST_LIBRARY[0];
-      const questDate = randomTimeForDay(day, rng);
-      const event = createQuestEvent(quest, questDate, `seed-quest-${index}-${questIndex}`);
-
-      events.push(event);
-      questScore += QUEST_POINTS;
-    }
-
-    if (index > 1 && index < TIMELINE_WINDOW_DAYS - 2 && index % 8 === 3) {
-      const bonus = BONUS_LIBRARY[bonusCounter % BONUS_LIBRARY.length];
-      const bonusDate = randomTimeForDay(day, rng, 10, 19);
-
-      events.push({
-        id: `seed-bonus-${index}`,
-        type: "bonus",
-        icon: bonus.icon,
-        label: bonus.label,
-        timestamp: bonusDate.toISOString(),
-      });
-
-      bonusCounter += 1;
-    }
-  }
-
-  events.sort(sortByTimestamp);
-
-  return {
-    score: questScore,
-    events,
-  };
 }
 
 function handlePrimaryButtonClick() {
@@ -309,11 +279,11 @@ function rejectQuest() {
   }
 
   cancelQuestReel();
-  state.score -= REJECT_COST;
+  const deductedPoints = spendScore(REJECT_COST);
   state.pendingQuest = null;
   persistState();
   renderTimelinePinnedToBottom();
-  showFeedback(formatScoreDelta(-REJECT_COST));
+  showFeedback(formatScoreDelta(-deductedPoints));
 }
 
 function rerollQuest() {
@@ -321,10 +291,10 @@ function rerollQuest() {
     return;
   }
 
-  state.score -= REROLL_COST;
+  const deductedPoints = spendScore(REROLL_COST);
   persistState();
   beginQuestRoll(state.pendingQuest.quest?.name || "");
-  showFeedback(formatScoreDelta(-REROLL_COST));
+  showFeedback(formatScoreDelta(-deductedPoints));
 }
 
 function startLibraryDraft() {
@@ -410,6 +380,19 @@ function deleteSelectedQuest() {
 }
 
 function handleTimelineClick(event) {
+  const welcomePrimaryButton = event.target.closest("[data-welcome-primary]");
+  const welcomeLibraryButton = event.target.closest("[data-welcome-library]");
+
+  if (welcomePrimaryButton) {
+    handlePrimaryButtonClick();
+    return;
+  }
+
+  if (welcomeLibraryButton) {
+    toggleLibraryView();
+    return;
+  }
+
   if (state.view !== "library" || state.libraryDraftQuest) {
     return;
   }
@@ -533,6 +516,7 @@ function updateHeader() {
 }
 
 function updateScoreDisplay() {
+  const hasVisibleScore = state.view === "timeline" && state.score > 0;
   const scoreInner = ui.scoreValue.querySelector(".fit-text-inner");
 
   if (scoreInner) {
@@ -540,6 +524,8 @@ function updateScoreDisplay() {
   } else {
     ui.scoreValue.textContent = state.score.toLocaleString();
   }
+
+  ui.scoreWrap.classList.toggle("is-hidden", !hasVisibleScore);
 }
 
 function syncControls() {
@@ -591,6 +577,12 @@ function buildTimelineMarkup() {
   const rows = [];
   const sortedEvents = [...state.events].sort(sortByTimestamp);
   let currentDayKey = "";
+  const isEmptyTimeline =
+    !sortedEvents.length && !state.pendingQuest && !(state.isStartingQuest && state.launchQuestPlan);
+
+  if (isEmptyTimeline) {
+    rows.push(renderWelcomeMessage());
+  }
 
   for (const event of sortedEvents) {
     const eventDate = new Date(event.timestamp);
@@ -625,6 +617,115 @@ function buildTimelineMarkup() {
   }
 
   return rows.join("");
+}
+
+function renderWelcomeMessage() {
+  return `
+    <section class="timeline-welcome" aria-label="Welcome message">
+      <p
+        class="fit-text stack-copy timeline-welcome-line"
+        data-fit-text
+        data-fit-base="52"
+      >
+        <span class="fit-text-inner">WELCOME TO FITNESS QUEST</span>
+      </p>
+      <div class="timeline-welcome-cta">
+        <p
+          class="fit-text stack-copy timeline-welcome-line timeline-welcome-cta-copy"
+          data-fit-text
+          data-fit-base="42"
+        >
+          <span class="fit-text-inner">CLICK</span>
+        </p>
+        <button
+          class="quest-fab timeline-welcome-button"
+          type="button"
+          data-welcome-primary
+          aria-label="Start your first exercise quest"
+        >
+          <span class="quest-action-icon" aria-hidden="true">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M5 12h14"></path>
+              <path d="M12 5v14"></path>
+            </svg>
+          </span>
+        </button>
+      </div>
+      <p
+        class="fit-text stack-copy timeline-welcome-line"
+        data-fit-text
+        data-fit-base="46"
+      >
+        <span class="fit-text-inner">FOR YOUR FIRST</span>
+      </p>
+      <p
+        class="fit-text stack-copy timeline-welcome-line"
+        data-fit-text
+        data-fit-base="46"
+      >
+        <span class="fit-text-inner">EXERCISE QUEST NOW</span>
+      </p>
+      <div class="timeline-welcome-cta timeline-welcome-cta-library">
+        <p
+          class="fit-text stack-copy timeline-welcome-line timeline-welcome-cta-copy timeline-welcome-cta-copy-start"
+          data-fit-text
+          data-fit-base="34"
+          data-fit-height="52"
+        >
+          <span class="fit-text-inner">CLICK</span>
+        </p>
+        <button
+          class="header-action timeline-welcome-menu-button"
+          type="button"
+          data-welcome-library
+          aria-label="Open quest library"
+        >
+          <span class="header-action-icon" aria-hidden="true">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="4" x2="20" y1="12" y2="12"></line>
+              <line x1="4" x2="20" y1="6" y2="6"></line>
+              <line x1="4" x2="20" y1="18" y2="18"></line>
+            </svg>
+          </span>
+        </button>
+        <p
+          class="fit-text stack-copy timeline-welcome-line timeline-welcome-cta-copy timeline-welcome-cta-copy-end"
+          data-fit-text
+          data-fit-base="34"
+          data-fit-height="52"
+        >
+          <span class="fit-text-inner">TO CUSTOMIZE</span>
+        </p>
+      </div>
+      <p
+        class="fit-text stack-copy timeline-welcome-line"
+        data-fit-text
+        data-fit-base="38"
+      >
+        <span class="fit-text-inner">YOUR QUEST LIBRARY</span>
+      </p>
+    </section>
+  `;
 }
 
 function buildLibraryMarkup() {
@@ -1290,11 +1391,25 @@ function syncFixedLayout() {
   const headerHeight = Math.ceil(ui.stackHeader.getBoundingClientRect().height);
   const titleHeight = Math.ceil(ui.stackTitle.getBoundingClientRect().height);
   const scoreHeight = Math.ceil(ui.scoreWrap.getBoundingClientRect().height);
+  const currentTimelineOffset = getCssPixelValue("--timeline-content-offset", 0);
+  const contentHeight = Math.max(ui.timeline.scrollHeight - currentTimelineOffset, 0);
+  const scoreClearance = scoreHeight > 0 ? scoreHeight + 44 : 0;
+  const shouldOffsetTimeline =
+    state.view === "timeline" &&
+    scoreClearance > 0 &&
+    contentHeight + scoreClearance <= ui.timelineView.clientHeight;
 
   root.style.setProperty("--header-action-size", `${titleHeight}px`);
   root.style.setProperty("--stack-header-height", `${headerHeight}px`);
   root.style.setProperty("--score-top", `${headerHeight + 20}px`);
-  root.style.setProperty("--stack-scroll-margin", `${headerHeight + scoreHeight + 44}px`);
+  root.style.setProperty(
+    "--stack-scroll-margin",
+    `${headerHeight + (scoreHeight > 0 ? scoreHeight + 44 : 24)}px`
+  );
+  root.style.setProperty(
+    "--timeline-content-offset",
+    `${shouldOffsetTimeline ? scoreClearance : 0}px`
+  );
 
   if (!state.hasInitialFocus && state.view === "timeline") {
     state.hasInitialFocus = true;
@@ -1504,6 +1619,13 @@ function cloneQuestLibrary(questLibrary) {
   return questLibrary.map((quest) => ({ ...quest }));
 }
 
+function spendScore(amount) {
+  const safeAmount = Math.max(0, Math.round(Number(amount) || 0));
+  const deductedPoints = Math.min(state.score, safeAmount);
+  state.score -= deductedPoints;
+  return deductedPoints;
+}
+
 function createId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
@@ -1680,38 +1802,6 @@ function sortByTimestamp(left, right) {
   return new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime();
 }
 
-function startOfDay(date) {
-  const value = new Date(date);
-  value.setHours(0, 0, 0, 0);
-  return value;
-}
-
-function addDays(date, count) {
-  const value = new Date(date);
-  value.setDate(value.getDate() + count);
-  return value;
-}
-
-function randomTimeForDay(day, rng, startHour = 7, endHour = 21) {
-  const minutesWindow = (endHour - startHour) * 60;
-  const minutesOffset = Math.floor(rng() * minutesWindow);
-  const date = new Date(day);
-
-  date.setHours(startHour, 0, 0, 0);
-  date.setMinutes(date.getMinutes() + minutesOffset);
-
-  return date;
-}
-
-function mulberry32(seed) {
-  return function next() {
-    let value = (seed += 0x6d2b79f5);
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
@@ -1741,6 +1831,72 @@ function writeStorageItem(key, value) {
     storageAvailable = false;
     return false;
   }
+}
+
+function removeStorageItem(key) {
+  if (!storageAvailable) {
+    return false;
+  }
+
+  try {
+    window.localStorage.removeItem(key);
+    return true;
+  } catch (error) {
+    storageAvailable = false;
+    return false;
+  }
+}
+
+function clearLegacyStorage() {
+  for (const key of LEGACY_STORAGE_KEYS) {
+    removeStorageItem(key);
+  }
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+
+  const isLocalhost =
+    window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+  if (!window.isSecureContext && !isLocalhost) {
+    return;
+  }
+
+  shouldReloadForServiceWorkerUpdate = Boolean(navigator.serviceWorker.controller);
+
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!shouldReloadForServiceWorkerUpdate || hasReloadedForServiceWorker) {
+      return;
+    }
+
+    hasReloadedForServiceWorker = true;
+    window.location.reload();
+  });
+
+  window.addEventListener("load", async () => {
+    try {
+      const registration = await navigator.serviceWorker.register(SERVICE_WORKER_URL, {
+        scope: "./",
+      });
+
+      const refreshServiceWorker = () => {
+        registration.update().catch(() => {});
+      };
+
+      refreshServiceWorker();
+      window.addEventListener("online", refreshServiceWorker);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          refreshServiceWorker();
+        }
+      });
+    } catch (error) {
+      // Ignore service worker registration failures and continue without install support.
+    }
+  });
 }
 
 function escapeHtml(value) {

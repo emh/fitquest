@@ -19,6 +19,7 @@
   --controls-clearance: 0px;
   --draft-keyboard-clearance: 0px;
   --controls-keyboard-offset: 0px;
+  --timeline-content-offset: 0px;
   --stack-header-height:
     calc(
       env(safe-area-inset-top) + var(--title-pad-y) + var(--title-band-height) +
@@ -178,6 +179,7 @@ button {
   transform: translateX(-50%);
 }
 
+.score-wrap.is-hidden,
 .is-library-view .score-wrap {
   display: none;
 }
@@ -218,6 +220,7 @@ button {
   display: flex;
   flex-direction: column;
   width: 100%;
+  padding-top: var(--timeline-content-offset);
 }
 
 .stack-row {
@@ -237,6 +240,85 @@ button {
 
 .stack-row-event + .stack-row-event {
   margin-top: 1px;
+}
+
+.timeline-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  padding-top: 10px;
+}
+
+.timeline-welcome-line {
+  width: 100%;
+  color: var(--ink);
+}
+
+.timeline-welcome-line-prompt {
+  margin-top: 8px;
+}
+
+.timeline-welcome-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 8px;
+}
+
+.timeline-welcome-cta-library {
+  margin-top: 12px;
+}
+
+.timeline-welcome-cta-copy {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.timeline-welcome-cta-copy-start {
+  flex-grow: 5;
+}
+
+.timeline-welcome-cta-copy-end {
+  flex-grow: 12;
+}
+
+.timeline-welcome .timeline-welcome-button {
+  position: static;
+  left: auto;
+  bottom: auto;
+  z-index: auto;
+  flex: 0 0 auto;
+  align-self: center;
+  width: 64px;
+  height: 64px;
+  margin: 0;
+  transform: none;
+}
+
+.timeline-welcome .timeline-welcome-button:active {
+  transform: scale(0.96);
+}
+
+.timeline-welcome .timeline-welcome-button .quest-action-icon svg {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.timeline-welcome .timeline-welcome-menu-button {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  min-width: 52px;
+  min-height: 52px;
+}
+
+.timeline-welcome .timeline-welcome-menu-button .header-action-icon svg {
+  width: 1.3rem;
+  height: 1.3rem;
 }
 
 .stack-row-pending {
