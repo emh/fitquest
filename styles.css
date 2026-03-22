@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Climate Crisis";
+  src: url("./assets/fonts/ClimateCrisis-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
   --paper: #ffffff;

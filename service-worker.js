@@ -1,18 +1,18 @@
-const APP_SHELL_CACHE = "fitquest-app-shell-v2";
+const APP_SHELL_CACHE = "fitquest-app-shell-v3";
 const RUNTIME_CACHE = "fitquest-runtime-v2";
-const FONT_CACHE = "fitquest-fonts-v1";
 const CORE_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./script.js",
   "./site.webmanifest",
+  "./assets/fonts/ClimateCrisis-Regular.woff2",
   "./icons/favicon.svg",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
 ];
-const ACTIVE_CACHES = new Set([APP_SHELL_CACHE, RUNTIME_CACHE, FONT_CACHE]);
+const ACTIVE_CACHES = new Set([APP_SHELL_CACHE, RUNTIME_CACHE]);
 const CORE_ASSET_URLS = new Set(CORE_ASSETS.map((asset) => new URL(asset, self.location.href).href));
 
 self.addEventListener("install", (event) => {
@@ -58,9 +58,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (isGoogleFontRequest(url)) {
-    event.respondWith(staleWhileRevalidate(request, FONT_CACHE));
-  }
 });
 
 async function precacheCoreAssets() {
@@ -126,10 +123,6 @@ async function staleWhileRevalidate(request, cacheName) {
   }
 
   throw new Error(`No cached response available for ${request.url}`);
-}
-
-function isGoogleFontRequest(url) {
-  return url.origin === "https://fonts.googleapis.com" || url.origin === "https://fonts.gstatic.com";
 }
 
 function isCacheableResponse(response) {
