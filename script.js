@@ -1876,11 +1876,10 @@ function registerServiceWorker() {
     window.location.reload();
   });
 
-  void (async () => {
+  window.addEventListener("load", async () => {
     try {
       const registration = await navigator.serviceWorker.register(SERVICE_WORKER_URL, {
         scope: "./",
-        updateViaCache: "none",
       });
 
       const refreshServiceWorker = () => {
@@ -1897,7 +1896,7 @@ function registerServiceWorker() {
     } catch (error) {
       // Ignore service worker registration failures and continue without install support.
     }
-  })();
+  });
 }
 
 function escapeHtml(value) {
