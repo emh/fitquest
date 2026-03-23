@@ -11,6 +11,46 @@ const ACTIVE_CONTROLS_CLEARANCE = 118;
 const IOS_INPUT_MIN_FONT_SIZE = 16;
 const REEL_FONT_MIN = 84;
 const REEL_FONT_MAX = 108;
+const VIEW_TIMELINE = "timeline";
+const VIEW_SETTINGS = "settings";
+const VIEW_LIBRARY = "library";
+const VIEW_FONT_SETTINGS = "font-settings";
+const VIEW_THEME_SETTINGS = "theme-settings";
+const DEFAULT_FONT_PREFERENCE = "climate-crisis";
+const DEFAULT_THEME_PREFERENCE = "system";
+const LIGHT_THEME_COLOR = "#de2c23";
+const DARK_THEME_COLOR = "#000000";
+const SETTINGS_ICON_SVG = `
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M12.22 2h-.44a2 2 0 0 0-1.94 1.57l-.26 1.24a1 1 0 0 1-.64.73c-.56.22-1.09.53-1.57.9a1 1 0 0 1-.9.15l-1.2-.48a2 2 0 0 0-2.33.73l-.25.38a2 2 0 0 0 .24 2.45l.96.98a1 1 0 0 1 .25 1.03 8.3 8.3 0 0 0 0 1.82 1 1 0 0 1-.25 1.03l-.96.98a2 2 0 0 0-.24 2.45l.25.38a2 2 0 0 0 2.33.73l1.2-.48a1 1 0 0 1 .9.15c.48.37 1.01.68 1.57.9a1 1 0 0 1 .64.73l.26 1.24a2 2 0 0 0 1.94 1.57h.44a2 2 0 0 0 1.94-1.57l.26-1.24a1 1 0 0 1 .64-.73c.56-.22 1.09-.53 1.57-.9a1 1 0 0 1 .9-.15l1.2.48a2 2 0 0 0 2.33-.73l.25-.38a2 2 0 0 0-.24-2.45l-.96-.98a1 1 0 0 1-.25-1.03 8.3 8.3 0 0 0 0-1.82 1 1 0 0 1 .25-1.03l.96-.98a2 2 0 0 0 .24-2.45l-.25-.38a2 2 0 0 0-2.33-.73l-1.2.48a1 1 0 0 1-.9-.15 7.97 7.97 0 0 0-1.57-.9 1 1 0 0 1-.64-.73l-.26-1.24A2 2 0 0 0 12.22 2z"></path>
+    <circle cx="12" cy="12" r="3"></circle>
+  </svg>
+`;
+const BACK_ICON_SVG = `
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="m15 18-6-6 6-6"></path>
+  </svg>
+`;
 
 const DEFAULT_QUEST_LIBRARY = [
   { id: "quest-15-pushups", name: "15 pushups", active: true },
@@ -47,10 +87,60 @@ const DEFAULT_QUEST_LIBRARY = [
   { id: "quest-10-10-hand-gripper-l1", name: "10/10 hand gripper (L1)", active: true },
 ];
 
+const FONT_OPTIONS = [
+  {
+    id: "climate-crisis",
+    label: "Climate Crisis",
+    cssFamily: '"Climate Crisis", "Arial Black", sans-serif',
+    loadFamily: '"Climate Crisis"',
+    weight: 400,
+  },
+  {
+    id: "erica-one",
+    label: "Erica One",
+    cssFamily: '"Erica One", "Arial Black", sans-serif',
+    loadFamily: '"Erica One"',
+    weight: 400,
+  },
+  {
+    id: "bitcount-prop-double",
+    label: "Bitcount Prop Double",
+    cssFamily: '"Bitcount Prop Double", "Arial Black", sans-serif',
+    loadFamily: '"Bitcount Prop Double"',
+    weight: 400,
+  },
+  {
+    id: "dynapuff",
+    label: "DynaPuff",
+    cssFamily: '"DynaPuff", "Arial Black", sans-serif',
+    loadFamily: '"DynaPuff"',
+    weight: 700,
+  },
+  {
+    id: "saira-stencil-one",
+    label: "Saira Stencil One",
+    cssFamily: '"Saira Stencil One", "Arial Black", sans-serif',
+    loadFamily: '"Saira Stencil One"',
+    weight: 400,
+  },
+];
+
+const THEME_OPTIONS = [
+  { id: "light", label: "Light", detail: "Current light theme" },
+  { id: "dark", label: "Dark", detail: "White text on black" },
+  { id: "system", label: "System", detail: "Follow device default" },
+];
+
+const FONT_OPTIONS_BY_ID = Object.fromEntries(FONT_OPTIONS.map((option) => [option.id, option]));
+const THEME_OPTIONS_BY_ID = Object.fromEntries(THEME_OPTIONS.map((option) => [option.id, option]));
+const systemThemeMedia = window.matchMedia?.("(prefers-color-scheme: dark)") || null;
+
 const ui = {
   body: document.body,
+  root: document.documentElement,
   stackHeader: document.querySelector(".stack-header"),
   stackTitle: document.querySelector(".stack-title"),
+  titleNode: document.querySelector(".stack-copy-title"),
   titleInner: document.querySelector(".stack-copy-title .fit-text-inner"),
   timeline: document.querySelector("#timeline"),
   timelineView: document.querySelector(".timeline-view"),
@@ -72,13 +162,14 @@ const ui = {
   saveQuestButton: document.querySelector("#saveQuestButton"),
   cancelCreateButton: document.querySelector("#cancelCreateButton"),
   feedback: document.querySelector("#feedback"),
+  themeColorMeta: document.querySelector('meta[name="theme-color"]'),
 };
 
 const state = {
   score: 0,
   events: [],
   questLibrary: cloneQuestLibrary(DEFAULT_QUEST_LIBRARY),
-  view: "timeline",
+  view: VIEW_TIMELINE,
   pendingQuest: null,
   launchQuestPlan: null,
   lastRenderedEventId: null,
@@ -86,6 +177,8 @@ const state = {
   isStartingQuest: false,
   librarySelectedQuestId: null,
   libraryDraftQuest: null,
+  fontPreference: DEFAULT_FONT_PREFERENCE,
+  themePreference: DEFAULT_THEME_PREFERENCE,
 };
 
 let feedbackTimer = 0;
@@ -105,6 +198,7 @@ initialize();
 function initialize() {
   clearLegacyStorage();
   loadState();
+  applyDisplayPreferences();
   bindEvents();
   render();
   registerServiceWorker();
@@ -112,7 +206,7 @@ function initialize() {
   if (document.fonts?.ready) {
     document.fonts.ready.then(() => {
       runAfterLayout(() => {
-        if (state.view === "timeline") {
+        if (state.view === VIEW_TIMELINE) {
           scrollToDocumentBottom("auto");
         }
       });
@@ -127,7 +221,7 @@ function runAfterLayout(callback) {
 
 function bindEvents() {
   ui.questButton.addEventListener("click", handlePrimaryButtonClick);
-  ui.libraryButton.addEventListener("click", toggleLibraryView);
+  ui.libraryButton.addEventListener("click", handleHeaderActionClick);
   ui.acceptButton.addEventListener("click", acceptQuest);
   ui.rejectButton.addEventListener("click", rejectQuest);
   ui.rerollButton.addEventListener("click", rerollQuest);
@@ -140,6 +234,22 @@ function bindEvents() {
   ui.timeline.addEventListener("input", handleTimelineInput);
   ui.timeline.addEventListener("keydown", handleTimelineKeydown);
   window.addEventListener("resize", scheduleFitText, { passive: true });
+
+  if (!systemThemeMedia) {
+    return;
+  }
+
+  const handleThemeChange = () => {
+    if (state.themePreference === DEFAULT_THEME_PREFERENCE) {
+      applyThemePreference();
+    }
+  };
+
+  if (typeof systemThemeMedia.addEventListener === "function") {
+    systemThemeMedia.addEventListener("change", handleThemeChange);
+  } else if (typeof systemThemeMedia.addListener === "function") {
+    systemThemeMedia.addListener(handleThemeChange);
+  }
 }
 
 function loadState() {
@@ -156,6 +266,8 @@ function loadState() {
     state.events = sanitizeEvents(parsed.events);
     state.questLibrary = sanitizeQuestLibrary(parsed.questLibrary);
     state.score = deriveScore(parsed.score, parsed.events, state.events);
+    state.fontPreference = sanitizeFontPreference(parsed.fontPreference);
+    state.themePreference = sanitizeThemePreference(parsed.themePreference);
   } catch (error) {
     resetState();
     persistState();
@@ -166,6 +278,8 @@ function resetState() {
   state.score = 0;
   state.events = [];
   state.questLibrary = cloneQuestLibrary(DEFAULT_QUEST_LIBRARY);
+  state.fontPreference = DEFAULT_FONT_PREFERENCE;
+  state.themePreference = DEFAULT_THEME_PREFERENCE;
 }
 
 function persistState() {
@@ -175,51 +289,100 @@ function persistState() {
       score: state.score,
       events: state.events,
       questLibrary: state.questLibrary,
+      fontPreference: state.fontPreference,
+      themePreference: state.themePreference,
     })
   );
 }
 
 function handlePrimaryButtonClick() {
-  if (state.view === "library") {
+  if (state.view === VIEW_LIBRARY) {
     startLibraryDraft();
     return;
   }
 
-  openQuestFlow();
+  if (state.view === VIEW_TIMELINE) {
+    openQuestFlow();
+  }
 }
 
-function toggleLibraryView() {
-  if (state.view === "library") {
-    closeLibraryView();
+function handleHeaderActionClick() {
+  if (state.view === VIEW_TIMELINE) {
+    openSettingsView();
     return;
   }
 
+  navigateBackFromAuxiliaryView();
+}
+
+function openSettingsView() {
   if (state.pendingQuest || state.isStartingQuest) {
     return;
   }
 
-  state.view = "library";
-  state.librarySelectedQuestId = null;
-  state.libraryDraftQuest = null;
+  stopLibraryDraftViewportSync();
+  clearLibraryEditorState();
+  state.view = VIEW_SETTINGS;
   render();
   runAfterLayout(() => {
     scrollToDocumentTop("auto");
   });
 }
 
-function closeLibraryView() {
+function closeAuxiliaryView() {
   stopLibraryDraftViewportSync();
-  state.view = "timeline";
-  state.librarySelectedQuestId = null;
-  state.libraryDraftQuest = null;
+  clearLibraryEditorState();
+  state.view = VIEW_TIMELINE;
   render();
   runAfterLayout(() => {
     scrollToDocumentBottom("auto");
   });
 }
 
+function navigateBackFromAuxiliaryView() {
+  if (state.view === VIEW_LIBRARY) {
+    stopLibraryDraftViewportSync();
+    clearLibraryEditorState();
+    state.view = VIEW_SETTINGS;
+    render();
+    runAfterLayout(() => {
+      scrollToDocumentTop("auto");
+    });
+    return;
+  }
+
+  if (state.view === VIEW_FONT_SETTINGS || state.view === VIEW_THEME_SETTINGS) {
+    state.view = VIEW_SETTINGS;
+    render();
+    runAfterLayout(() => {
+      scrollToDocumentTop("auto");
+    });
+    return;
+  }
+
+  closeAuxiliaryView();
+}
+
+function openSettingsSubscreen(view) {
+  if (state.view !== VIEW_SETTINGS) {
+    return;
+  }
+
+  if (![VIEW_LIBRARY, VIEW_FONT_SETTINGS, VIEW_THEME_SETTINGS].includes(view)) {
+    return;
+  }
+
+  stopLibraryDraftViewportSync();
+  clearLibraryEditorState();
+  state.view = view;
+  render();
+  runAfterLayout(() => {
+    scrollToDocumentTop("auto");
+  });
+}
+
 function openQuestFlow() {
-  if (state.view !== "timeline" || state.pendingQuest || state.isStartingQuest) {
+  if (state.view !== VIEW_TIMELINE || state.pendingQuest || state.isStartingQuest) {
     return;
   }
 
@@ -298,7 +461,7 @@ function rerollQuest() {
 }
 
 function startLibraryDraft() {
-  if (state.view !== "library" || state.libraryDraftQuest || getSelectedLibraryQuest()) {
+  if (state.view !== VIEW_LIBRARY || state.libraryDraftQuest || getSelectedLibraryQuest()) {
     return;
   }
 
@@ -382,6 +545,9 @@ function deleteSelectedQuest() {
 function handleTimelineClick(event) {
   const welcomePrimaryButton = event.target.closest("[data-welcome-primary]");
   const welcomeLibraryButton = event.target.closest("[data-welcome-library]");
+  const settingsRowButton = event.target.closest("[data-settings-target]");
+  const fontOptionButton = event.target.closest("[data-font-option]");
+  const themeOptionButton = event.target.closest("[data-theme-option]");
 
   if (welcomePrimaryButton) {
     handlePrimaryButtonClick();
@@ -389,11 +555,26 @@ function handleTimelineClick(event) {
   }
 
   if (welcomeLibraryButton) {
-    toggleLibraryView();
+    openSettingsView();
     return;
   }
 
-  if (state.view !== "library" || state.libraryDraftQuest) {
+  if (settingsRowButton && state.view === VIEW_SETTINGS) {
+    openSettingsSubscreen(settingsRowButton.dataset.settingsTarget);
+    return;
+  }
+
+  if (fontOptionButton && state.view === VIEW_FONT_SETTINGS) {
+    selectFontPreference(fontOptionButton.dataset.fontOption);
+    return;
+  }
+
+  if (themeOptionButton && state.view === VIEW_THEME_SETTINGS) {
+    selectThemePreference(themeOptionButton.dataset.themeOption);
+    return;
+  }
+
+  if (state.view !== VIEW_LIBRARY || state.libraryDraftQuest) {
     return;
   }
 
@@ -408,7 +589,7 @@ function handleTimelineClick(event) {
 }
 
 function handleTimelineInput(event) {
-  if (state.view !== "library") {
+  if (state.view !== VIEW_LIBRARY) {
     return;
   }
 
@@ -423,7 +604,7 @@ function handleTimelineInput(event) {
 }
 
 function handleTimelineKeydown(event) {
-  if (state.view !== "library") {
+  if (state.view !== VIEW_LIBRARY) {
     return;
   }
 
@@ -448,75 +629,43 @@ function render() {
   syncViewChrome();
   updateHeader();
   updateScoreDisplay();
-  ui.timeline.setAttribute(
-    "aria-label",
-    state.view === "library" ? "Quest library" : "Fitness Quest activity timeline"
-  );
-  ui.timeline.innerHTML = state.view === "library" ? buildLibraryMarkup() : buildTimelineMarkup();
+  ui.timeline.setAttribute("aria-label", getViewAriaLabel());
+  ui.timeline.innerHTML = buildCurrentViewMarkup();
   syncControls();
   state.lastRenderedEventId = null;
   scheduleFitText();
 
-  if (state.view === "timeline" && state.pendingQuest?.isRolling) {
+  if (state.view === VIEW_TIMELINE && state.pendingQuest?.isRolling) {
     playPendingQuestReel(state.pendingQuest.rollId);
   }
 }
 
 function syncViewChrome() {
-  ui.body.classList.toggle("is-library-view", state.view === "library");
+  ui.body.classList.toggle("is-library-view", state.view !== VIEW_TIMELINE);
+  ui.body.dataset.view = state.view;
 }
 
 function updateHeader() {
+  if (ui.titleNode) {
+    ui.titleNode.setAttribute("aria-label", getViewTitle());
+  }
+
   if (ui.titleInner) {
-    ui.titleInner.textContent = state.view === "library" ? "QUEST LIBRARY" : "FITNESS QUEST";
+    ui.titleInner.textContent = getViewTitle();
   }
 
   if (ui.libraryButtonIcon) {
     ui.libraryButtonIcon.innerHTML =
-      state.view === "library"
-        ? `
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="m15 18-6-6 6-6"></path>
-            </svg>
-          `
-        : `
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <line x1="4" x2="20" y1="12" y2="12"></line>
-              <line x1="4" x2="20" y1="6" y2="6"></line>
-              <line x1="4" x2="20" y1="18" y2="18"></line>
-            </svg>
-          `;
+      state.view === VIEW_TIMELINE ? SETTINGS_ICON_SVG : BACK_ICON_SVG;
   }
 
-  ui.libraryButton.disabled = state.view === "timeline" && (state.pendingQuest || state.isStartingQuest);
-  ui.libraryButton.setAttribute(
-    "aria-label",
-    state.view === "library" ? "Back to timeline" : "Open quest library"
-  );
+  ui.libraryButton.disabled =
+    state.view === VIEW_TIMELINE && (state.pendingQuest || state.isStartingQuest);
+  ui.libraryButton.setAttribute("aria-label", getHeaderButtonLabel());
 }
 
 function updateScoreDisplay() {
-  const hasVisibleScore = state.view === "timeline" && state.score > 0;
+  const hasVisibleScore = state.view === VIEW_TIMELINE && state.score > 0;
   const scoreInner = ui.scoreValue.querySelector(".fit-text-inner");
 
   if (scoreInner) {
@@ -529,28 +678,33 @@ function updateScoreDisplay() {
 }
 
 function syncControls() {
-  const isLibraryView = state.view === "library";
+  const isTimelineView = state.view === VIEW_TIMELINE;
+  const isLibraryView = state.view === VIEW_LIBRARY;
   const hasPendingQuest = Boolean(state.pendingQuest);
   const isRolling = Boolean(state.pendingQuest?.isRolling);
   const selectedQuest = getSelectedLibraryQuest();
   const hasLibraryDraft = Boolean(state.libraryDraftQuest);
   const hasLibrarySelection = Boolean(selectedQuest) && !hasLibraryDraft;
   const hasBottomControls =
-    (!isLibraryView && hasPendingQuest) || (isLibraryView && (hasLibrarySelection || hasLibraryDraft));
+    (isTimelineView && hasPendingQuest) || (isLibraryView && (hasLibrarySelection || hasLibraryDraft));
 
   setControlsClearance(hasBottomControls ? ACTIVE_CONTROLS_CLEARANCE : 0);
 
+  const shouldShowQuestButton =
+    (isTimelineView && !hasPendingQuest && !state.isStartingQuest) ||
+    (isLibraryView && !hasLibraryDraft && !hasLibrarySelection);
+
   ui.questButton.classList.toggle(
     "is-hidden",
-    isLibraryView ? hasLibraryDraft || hasLibrarySelection : hasPendingQuest || state.isStartingQuest
+    !shouldShowQuestButton
   );
-  ui.questButton.disabled = state.isStartingQuest;
+  ui.questButton.disabled = state.isStartingQuest || (!isTimelineView && !isLibraryView);
   ui.questButton.setAttribute(
     "aria-label",
     isLibraryView ? "Add a new quest to the library" : "Start a new quest"
   );
 
-  ui.questControls.classList.toggle("is-visible", !isLibraryView && hasPendingQuest);
+  ui.questControls.classList.toggle("is-visible", isTimelineView && hasPendingQuest);
   ui.acceptButton.disabled = !hasPendingQuest || isRolling;
   ui.rerollButton.disabled = !hasPendingQuest;
   ui.rejectButton.disabled = !hasPendingQuest;
@@ -570,6 +724,59 @@ function syncControls() {
     ui.toggleQuestLabel.textContent = "ON";
     ui.toggleQuestButton.classList.remove("is-inactive");
     ui.toggleQuestButton.setAttribute("aria-label", "Set quest inactive");
+  }
+}
+
+function getViewTitle() {
+  switch (state.view) {
+    case VIEW_SETTINGS:
+      return "SETTINGS";
+    case VIEW_LIBRARY:
+      return "QUEST LIBRARY";
+    case VIEW_FONT_SETTINGS:
+      return "FONT";
+    case VIEW_THEME_SETTINGS:
+      return "THEME";
+    default:
+      return "FITNESS QUEST";
+  }
+}
+
+function getViewAriaLabel() {
+  switch (state.view) {
+    case VIEW_SETTINGS:
+      return "Settings";
+    case VIEW_LIBRARY:
+      return "Quest library";
+    case VIEW_FONT_SETTINGS:
+      return "Font settings";
+    case VIEW_THEME_SETTINGS:
+      return "Theme settings";
+    default:
+      return "Fitness Quest activity timeline";
+  }
+}
+
+function getHeaderButtonLabel() {
+  if (state.view === VIEW_TIMELINE) {
+    return "Open settings";
+  }
+
+  return state.view === VIEW_SETTINGS ? "Back to main screen" : "Back to settings";
+}
+
+function buildCurrentViewMarkup() {
+  switch (state.view) {
+    case VIEW_SETTINGS:
+      return buildSettingsMarkup();
+    case VIEW_LIBRARY:
+      return buildLibraryMarkup();
+    case VIEW_FONT_SETTINGS:
+      return buildFontSettingsMarkup();
+    case VIEW_THEME_SETTINGS:
+      return buildThemeSettingsMarkup();
+    default:
+      return buildTimelineMarkup();
   }
 }
 
@@ -688,24 +895,10 @@ function renderWelcomeMessage() {
           class="header-action timeline-welcome-menu-button"
           type="button"
           data-welcome-library
-          aria-label="Open quest library"
+          aria-label="Open settings"
         >
           <span class="header-action-icon" aria-hidden="true">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <line x1="4" x2="20" y1="12" y2="12"></line>
-              <line x1="4" x2="20" y1="6" y2="6"></line>
-              <line x1="4" x2="20" y1="18" y2="18"></line>
-            </svg>
+            ${SETTINGS_ICON_SVG}
           </span>
         </button>
         <p
@@ -714,7 +907,7 @@ function renderWelcomeMessage() {
           data-fit-base="34"
           data-fit-height="52"
         >
-          <span class="fit-text-inner">TO CUSTOMIZE</span>
+          <span class="fit-text-inner">TO OPEN</span>
         </p>
       </div>
       <p
@@ -722,10 +915,30 @@ function renderWelcomeMessage() {
         data-fit-text
         data-fit-base="38"
       >
-        <span class="fit-text-inner">YOUR QUEST LIBRARY</span>
+        <span class="fit-text-inner">YOUR SETTINGS MENU</span>
       </p>
     </section>
   `;
+}
+
+function buildSettingsMarkup() {
+  return [
+    renderSettingsRow({
+      label: "Quest Library",
+      attributeName: "data-settings-target",
+      attributeValue: VIEW_LIBRARY,
+    }),
+    renderSettingsRow({
+      label: "Font",
+      attributeName: "data-settings-target",
+      attributeValue: VIEW_FONT_SETTINGS,
+    }),
+    renderSettingsRow({
+      label: "Theme",
+      attributeName: "data-settings-target",
+      attributeValue: VIEW_THEME_SETTINGS,
+    }),
+  ].join("");
 }
 
 function buildLibraryMarkup() {
@@ -736,6 +949,83 @@ function buildLibraryMarkup() {
   }
 
   return rows.join("");
+}
+
+function buildFontSettingsMarkup() {
+  return FONT_OPTIONS.map((option) =>
+    renderSettingsRow({
+      label: option.label,
+      attributeName: "data-font-option",
+      attributeValue: option.id,
+      isSelected: option.id === state.fontPreference,
+      labelFontFamily: option.cssFamily,
+      labelFontWeight: option.weight,
+      preserveCase: true,
+      rowClassName: "stack-row-font-option",
+    })
+  ).join("");
+}
+
+function buildThemeSettingsMarkup() {
+  return THEME_OPTIONS.map((option) =>
+    renderSettingsRow({
+      label: option.label,
+      attributeName: "data-theme-option",
+      attributeValue: option.id,
+      isSelected: option.id === state.themePreference,
+    })
+  ).join("");
+}
+
+function renderSettingsRow({
+  label,
+  attributeName,
+  attributeValue,
+  isSelected = false,
+  labelFontFamily = "",
+  labelFontWeight = "",
+  preserveCase = false,
+  rowClassName = "",
+}) {
+  const classes = ["stack-row", "stack-row-event", "stack-row-settings"];
+  const labelText = preserveCase ? label : normalizeStackCopy(label);
+  const labelStyles = [];
+
+  if (isSelected) {
+    classes.push("is-selected");
+  }
+
+  if (rowClassName) {
+    classes.push(rowClassName);
+  }
+
+  if (labelFontFamily) {
+    labelStyles.push(`font-family:${labelFontFamily}`);
+  }
+
+  if (labelFontWeight) {
+    labelStyles.push(`font-weight:${labelFontWeight}`);
+  }
+
+  return `
+    <article class="${classes.join(" ")}">
+      <button
+        class="settings-row-button"
+        type="button"
+        ${attributeName}="${escapeAttribute(attributeValue)}"
+        aria-label="${escapeAttribute(label)}"
+      >
+        <strong
+          class="fit-text stack-copy stack-copy-event"
+          data-fit-text
+          data-fit-base="124"
+          ${labelStyles.length ? `style="${escapeAttribute(labelStyles.join(";"))}"` : ""}
+        >
+          <span class="fit-text-inner">${escapeHtml(labelText)}</span>
+        </strong>
+      </button>
+    </article>
+  `;
 }
 
 function renderDateRow(dayLabel) {
@@ -1343,13 +1633,17 @@ function fitTextNode(node) {
   scale = Math.max(scale * 0.999, 0.01);
 
   const align = node.dataset.fitAlign || "left";
+  const valign = node.dataset.fitValign || "top";
   const scaledWidth = naturalWidth * scale;
+  const scaledHeight = naturalHeight * scale;
   const offsetX = align === "center" ? Math.max((availableWidth - scaledWidth) / 2, 0) : 0;
+  const offsetY =
+    maxHeight > 0 && valign === "center" ? Math.max((maxHeight - scaledHeight) / 2, 0) : 0;
 
   node.dataset.fitReady = "true";
-  node.style.height = `${Math.ceil(naturalHeight * scale)}px`;
+  node.style.height = `${Math.ceil(maxHeight > 0 && valign === "center" ? maxHeight : scaledHeight)}px`;
   inner.style.fontSize = `${baseFont}px`;
-  inner.style.transform = `translate(${offsetX}px, 0) scale(${scale})`;
+  inner.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
 }
 
 function fitEditableQuestInput(input) {
@@ -1389,17 +1683,15 @@ function syncFixedLayout() {
   }
 
   const headerHeight = Math.ceil(ui.stackHeader.getBoundingClientRect().height);
-  const titleHeight = Math.ceil(ui.stackTitle.getBoundingClientRect().height);
   const scoreHeight = Math.ceil(ui.scoreWrap.getBoundingClientRect().height);
   const currentTimelineOffset = getCssPixelValue("--timeline-content-offset", 0);
   const contentHeight = Math.max(ui.timeline.scrollHeight - currentTimelineOffset, 0);
   const scoreClearance = scoreHeight > 0 ? scoreHeight + 44 : 0;
   const shouldOffsetTimeline =
-    state.view === "timeline" &&
+    state.view === VIEW_TIMELINE &&
     scoreClearance > 0 &&
     contentHeight + scoreClearance <= ui.timelineView.clientHeight;
 
-  root.style.setProperty("--header-action-size", `${titleHeight}px`);
   root.style.setProperty("--stack-header-height", `${headerHeight}px`);
   root.style.setProperty("--score-top", `${headerHeight + 20}px`);
   root.style.setProperty(
@@ -1411,7 +1703,7 @@ function syncFixedLayout() {
     `${shouldOffsetTimeline ? scoreClearance : 0}px`
   );
 
-  if (!state.hasInitialFocus && state.view === "timeline") {
+  if (!state.hasInitialFocus && state.view === VIEW_TIMELINE) {
     state.hasInitialFocus = true;
     scrollToDocumentBottom("auto");
   }
@@ -1607,6 +1899,11 @@ function getSelectedLibraryQuest() {
   return state.questLibrary.find((quest) => quest.id === state.librarySelectedQuestId) || null;
 }
 
+function clearLibraryEditorState() {
+  state.librarySelectedQuestId = null;
+  state.libraryDraftQuest = null;
+}
+
 function getSortedQuestLibrary(library = state.questLibrary) {
   return [...library].sort(compareQuestLibrary);
 }
@@ -1617,6 +1914,83 @@ function getActiveQuestLibrary(library = state.questLibrary) {
 
 function cloneQuestLibrary(questLibrary) {
   return questLibrary.map((quest) => ({ ...quest }));
+}
+
+function getCurrentFontOption() {
+  return FONT_OPTIONS_BY_ID[state.fontPreference] || FONT_OPTIONS_BY_ID[DEFAULT_FONT_PREFERENCE];
+}
+
+function getCurrentThemeOption() {
+  return THEME_OPTIONS_BY_ID[state.themePreference] || THEME_OPTIONS_BY_ID[DEFAULT_THEME_PREFERENCE];
+}
+
+function getResolvedThemePreference() {
+  if (state.themePreference !== DEFAULT_THEME_PREFERENCE) {
+    return state.themePreference;
+  }
+
+  return systemThemeMedia?.matches ? "dark" : "light";
+}
+
+function applyDisplayPreferences() {
+  applyFontPreference();
+  applyThemePreference();
+}
+
+function applyFontPreference() {
+  const font = getCurrentFontOption();
+
+  ui.root.style.setProperty("--display-font-family", font.cssFamily);
+  ui.root.style.setProperty("--display-font-weight", String(font.weight));
+
+  if (document.fonts?.load) {
+    document.fonts
+      .load(`${font.weight} 32px ${font.loadFamily}`)
+      .then(() => {
+        scheduleFitText();
+      })
+      .catch(() => {});
+  }
+}
+
+function applyThemePreference() {
+  const resolvedTheme = getResolvedThemePreference();
+
+  ui.root.dataset.theme = resolvedTheme;
+  ui.root.style.colorScheme = resolvedTheme;
+
+  if (ui.themeColorMeta) {
+    ui.themeColorMeta.setAttribute(
+      "content",
+      resolvedTheme === "dark" ? DARK_THEME_COLOR : LIGHT_THEME_COLOR
+    );
+  }
+}
+
+function selectFontPreference(value) {
+  const nextPreference = sanitizeFontPreference(value);
+
+  if (nextPreference === state.fontPreference) {
+    return;
+  }
+
+  state.fontPreference = nextPreference;
+  persistState();
+  applyFontPreference();
+  renderPreservingScrollPosition();
+}
+
+function selectThemePreference(value) {
+  const nextPreference = sanitizeThemePreference(value);
+
+  if (nextPreference === state.themePreference) {
+    return;
+  }
+
+  state.themePreference = nextPreference;
+  persistState();
+  applyThemePreference();
+  renderPreservingScrollPosition();
 }
 
 function spendScore(amount) {
@@ -1651,6 +2025,14 @@ function getDayKey(date) {
 function sanitizeScore(value) {
   const score = Number(value);
   return Number.isFinite(score) ? Math.max(0, Math.round(score)) : 0;
+}
+
+function sanitizeFontPreference(value) {
+  return FONT_OPTIONS_BY_ID[value] ? value : DEFAULT_FONT_PREFERENCE;
+}
+
+function sanitizeThemePreference(value) {
+  return THEME_OPTIONS_BY_ID[value] ? value : DEFAULT_THEME_PREFERENCE;
 }
 
 function sanitizeEvents(value) {

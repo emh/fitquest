@@ -1,4 +1,4 @@
-const CACHE_NAME = "fitquest-runtime-v1";
+const CACHE_NAME = "fitquest-runtime-v2";
 const CORE_ASSETS = [
   "./",
   "./index.html",
