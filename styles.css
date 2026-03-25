@@ -392,6 +392,14 @@ button {
   color: var(--ink-soft);
 }
 
+.stack-row-event.is-reroll .stack-copy-event {
+  color: var(--reroll-dark);
+}
+
+.stack-row-event.is-reject .stack-copy-event {
+  color: var(--signal-dark);
+}
+
 .stack-row-library.is-selected .stack-copy-event {
   color: var(--accept);
 }
@@ -673,7 +681,7 @@ button {
   transform: translate(-50%, -6px) scale(1);
 }
 
-.is-library-view .feedback {
+body[data-view="library"] .feedback {
   opacity: 0;
   pointer-events: none;
 }

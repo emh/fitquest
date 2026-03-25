@@ -20,6 +20,14 @@ const DEFAULT_FONT_PREFERENCE = "climate-crisis";
 const DEFAULT_THEME_PREFERENCE = "system";
 const LIGHT_THEME_COLOR = "#de2c23";
 const DARK_THEME_COLOR = "#000000";
+const EVENT_TYPE_COMPLETE = "quest-complete";
+const EVENT_TYPE_REROLL = "quest-reroll";
+const EVENT_TYPE_REJECT = "quest-reject";
+const EVENT_TYPE_BONUS = "bonus";
+const SETTINGS_ACTION_EXPORT = "export-data";
+const SETTINGS_ACTION_IMPORT = "import-data";
+const EXPORT_FORMAT = "fitquest-backup";
+const EXPORT_VERSION = 1;
 const SETTINGS_ICON_SVG = `
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -162,6 +170,7 @@ const ui = {
   saveQuestButton: document.querySelector("#saveQuestButton"),
   cancelCreateButton: document.querySelector("#cancelCreateButton"),
   feedback: document.querySelector("#feedback"),
+  importFileInput: document.querySelector("#importFileInput"),
   themeColorMeta: document.querySelector('meta[name="theme-color"]'),
 };
 
@@ -233,6 +242,7 @@ function bindEvents() {
   ui.timeline.addEventListener("click", handleTimelineClick);
   ui.timeline.addEventListener("input", handleTimelineInput);
   ui.timeline.addEventListener("keydown", handleTimelineKeydown);
+  ui.importFileInput?.addEventListener("change", handleImportFileSelection);
   window.addEventListener("resize", scheduleFitText, { passive: true });
 
   if (!systemThemeMedia) {
@@ -422,18 +432,15 @@ function acceptQuest() {
     return;
   }
 
-  const event = createQuestEvent(state.pendingQuest.quest, getAppendEventTimestamp());
+  const event = createQuestCompletionEvent(state.pendingQuest.quest, getAppendEventTimestamp());
 
   cancelQuestReel();
-  state.events.push(event);
-  state.events.sort(sortByTimestamp);
-  state.score += event.points;
-  state.lastRenderedEventId = event.id;
+  const scoreDelta = appendEvent(event);
   state.pendingQuest = null;
 
   persistState();
   renderTimelinePinnedToBottom();
-  showFeedback(formatScoreDelta(event.points));
+  showFeedback(formatScoreDelta(scoreDelta));
 }
 
 function rejectQuest() {
@@ -441,12 +448,19 @@ function rejectQuest() {
     return;
   }
 
+  const penaltyEvent = createQuestPenaltyEvent(
+    EVENT_TYPE_REJECT,
+    state.pendingQuest.quest,
+    REJECT_COST,
+    getAppendEventTimestamp()
+  );
+
   cancelQuestReel();
-  const deductedPoints = spendScore(REJECT_COST);
+  const scoreDelta = appendEvent(penaltyEvent);
   state.pendingQuest = null;
   persistState();
   renderTimelinePinnedToBottom();
-  showFeedback(formatScoreDelta(-deductedPoints));
+  showFeedback(formatScoreDelta(scoreDelta));
 }
 
 function rerollQuest() {
@@ -454,10 +468,16 @@ function rerollQuest() {
     return;
   }
 
-  const deductedPoints = spendScore(REROLL_COST);
+  const penaltyEvent = createQuestPenaltyEvent(
+    EVENT_TYPE_REROLL,
+    state.pendingQuest.quest,
+    REROLL_COST,
+    getAppendEventTimestamp()
+  );
+  const scoreDelta = appendEvent(penaltyEvent);
   persistState();
   beginQuestRoll(state.pendingQuest.quest?.name || "");
-  showFeedback(formatScoreDelta(-deductedPoints));
+  showFeedback(formatScoreDelta(scoreDelta));
 }
 
 function startLibraryDraft() {
@@ -546,6 +566,7 @@ function handleTimelineClick(event) {
   const welcomePrimaryButton = event.target.closest("[data-welcome-primary]");
   const welcomeLibraryButton = event.target.closest("[data-welcome-library]");
   const settingsRowButton = event.target.closest("[data-settings-target]");
+  const settingsActionButton = event.target.closest("[data-settings-action]");
   const fontOptionButton = event.target.closest("[data-font-option]");
   const themeOptionButton = event.target.closest("[data-theme-option]");
 
@@ -561,6 +582,11 @@ function handleTimelineClick(event) {
 
   if (settingsRowButton && state.view === VIEW_SETTINGS) {
     openSettingsSubscreen(settingsRowButton.dataset.settingsTarget);
+    return;
+  }
+
+  if (settingsActionButton && state.view === VIEW_SETTINGS) {
+    handleSettingsAction(settingsActionButton.dataset.settingsAction);
     return;
   }
 
@@ -929,6 +955,16 @@ function buildSettingsMarkup() {
       attributeValue: VIEW_LIBRARY,
     }),
     renderSettingsRow({
+      label: "Export Data",
+      attributeName: "data-settings-action",
+      attributeValue: SETTINGS_ACTION_EXPORT,
+    }),
+    renderSettingsRow({
+      label: "Import Data",
+      attributeName: "data-settings-action",
+      attributeValue: SETTINGS_ACTION_IMPORT,
+    }),
+    renderSettingsRow({
       label: "Font",
       attributeName: "data-settings-target",
       attributeValue: VIEW_FONT_SETTINGS,
@@ -975,6 +1011,17 @@ function buildThemeSettingsMarkup() {
       isSelected: option.id === state.themePreference,
     })
   ).join("");
+}
+
+function handleSettingsAction(action) {
+  if (action === SETTINGS_ACTION_EXPORT) {
+    exportAppData();
+    return;
+  }
+
+  if (action === SETTINGS_ACTION_IMPORT) {
+    promptImportData();
+  }
 }
 
 function renderSettingsRow({
@@ -1043,14 +1090,22 @@ function renderDateRow(dayLabel) {
 }
 
 function renderEventRow(event) {
-  const isBonus = event.type === "bonus";
+  const isBonus = event.type === EVENT_TYPE_BONUS;
+  const isPenalty = isQuestPenaltyEvent(event);
   const freshClass = event.id === state.lastRenderedEventId ? "fresh-entry" : "";
-  const label = isBonus ? event.label : event.name;
-  const baseFont = isBonus ? 76 : 132;
+  const label = getEventDisplayLabel(event);
+  const baseFont = getEventDisplayBaseFont(event);
+  const typeClass = isBonus
+    ? "is-bonus"
+    : event.type === EVENT_TYPE_REROLL
+      ? "is-reroll"
+      : event.type === EVENT_TYPE_REJECT
+        ? "is-reject"
+        : "";
 
   return `
     <article
-      class="stack-row stack-row-event ${isBonus ? "is-bonus" : ""} ${freshClass}"
+      class="stack-row stack-row-event ${typeClass} ${isPenalty ? "is-penalty" : ""} ${freshClass}"
       data-event-id="${event.id}"
     >
       <strong
@@ -1160,6 +1215,171 @@ function renderLibraryDraftRow(quest) {
       </label>
     </article>
   `;
+}
+
+async function handleImportFileSelection(event) {
+  const input = event.currentTarget;
+  const file = input?.files?.[0];
+
+  if (!file) {
+    return;
+  }
+
+  try {
+    const rawText = await readFileAsText(file);
+    const importedData = parseImportedAppData(rawText);
+    const shouldImport = window.confirm(
+      "Importing will replace your current quest library and daily log. Continue?"
+    );
+
+    if (!shouldImport) {
+      return;
+    }
+
+    applyImportedAppData(importedData);
+    showFeedback("IMPORTED");
+  } catch (error) {
+    showFeedback("IMPORT FAILED");
+  } finally {
+    input.value = "";
+  }
+}
+
+function promptImportData() {
+  if (!ui.importFileInput) {
+    showFeedback("IMPORT BLOCKED");
+    return;
+  }
+
+  ui.importFileInput.value = "";
+  ui.importFileInput.click();
+}
+
+function exportAppData() {
+  const exportedAt = new Date();
+  const payload = {
+    format: EXPORT_FORMAT,
+    version: EXPORT_VERSION,
+    exportedAt: exportedAt.toISOString(),
+    score: sanitizeScore(state.score),
+    questLibrary: cloneQuestLibrary(state.questLibrary),
+    dailyLog: [...state.events].sort(sortByTimestamp).map(serializeExportEvent),
+  };
+  const fileName = `fitquest-export-${formatDateForFilename(exportedAt)}.json`;
+
+  downloadJsonFile(fileName, payload);
+  showFeedback("EXPORTED");
+}
+
+function parseImportedAppData(rawText) {
+  const parsed = JSON.parse(rawText);
+  const importedData = sanitizeImportedAppData(parsed);
+
+  if (!importedData) {
+    throw new Error("Invalid import payload");
+  }
+
+  return importedData;
+}
+
+function sanitizeImportedAppData(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const rawDailyLog = Array.isArray(payload.dailyLog)
+    ? payload.dailyLog
+    : Array.isArray(payload.events)
+      ? payload.events
+      : null;
+
+  if (!Array.isArray(payload.questLibrary) || !rawDailyLog) {
+    return null;
+  }
+
+  const events = sanitizeEvents(rawDailyLog);
+
+  return {
+    events,
+    questLibrary: sanitizeQuestLibrary(payload.questLibrary),
+    score: hasNumericValue(payload.score)
+      ? deriveScore(payload.score, rawDailyLog, events)
+      : sanitizeScore(getEventPointTotal(events)),
+  };
+}
+
+function applyImportedAppData(importedData) {
+  stopLibraryDraftViewportSync();
+  clearLibraryEditorState();
+  state.events = importedData.events;
+  state.questLibrary = importedData.questLibrary;
+  state.score = importedData.score;
+  state.pendingQuest = null;
+  persistState();
+  render();
+  runAfterLayout(() => {
+    scrollToDocumentTop("auto");
+  });
+}
+
+function readFileAsText(file) {
+  if (typeof file?.text === "function") {
+    return file.text();
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Unable to read file"));
+    reader.readAsText(file);
+  });
+}
+
+function downloadJsonFile(fileName, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => {
+    window.URL.revokeObjectURL(url);
+  }, 0);
+}
+
+function serializeExportEvent(event) {
+  if (event.type === EVENT_TYPE_BONUS) {
+    return {
+      id: event.id,
+      type: event.type,
+      icon: event.icon,
+      label: event.label,
+      points: getEventPointValue(event),
+      timestamp: event.timestamp,
+    };
+  }
+
+  return {
+    id: event.id,
+    type: event.type,
+    questId: event.questId,
+    questName: event.questName,
+    points: getEventPointValue(event),
+    penaltyCost: Number.isFinite(event.penaltyCost) ? event.penaltyCost : undefined,
+    timestamp: event.timestamp,
+  };
+}
+
+function formatDateForFilename(date) {
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function playPendingQuestReel(rollId) {
@@ -1863,23 +2083,64 @@ function pinTimelineToBottom() {
   scroller.scrollTop = getMaxScrollTop();
 }
 
-function createQuestEvent(quest, timestamp, customId) {
+function createQuestCompletionEvent(quest, timestamp, customId) {
+  return createQuestActivityEvent(
+    EVENT_TYPE_COMPLETE,
+    quest,
+    QUEST_POINTS,
+    timestamp,
+    customId
+  );
+}
+
+function createQuestPenaltyEvent(type, quest, penaltyCost, timestamp, customId) {
+  const safePenaltyCost = Math.max(0, Math.round(Number(penaltyCost) || 0));
+  const deductedPoints = Math.min(state.score, safePenaltyCost);
+
+  return createQuestActivityEvent(type, quest, -deductedPoints, timestamp, customId, {
+    penaltyCost: safePenaltyCost,
+  });
+}
+
+function createQuestActivityEvent(type, quest, points, timestamp, customId, extraData = {}) {
+  const questName = sanitizeQuestName(quest?.name || quest?.questName);
+
+  if (!questName) {
+    return null;
+  }
+
   return {
     id: customId || createId("quest"),
-    type: "quest",
-    name: quest.name,
-    points: QUEST_POINTS,
+    type,
+    questId: sanitizeQuestName(quest?.id || quest?.questId) || createQuestReferenceId(questName),
+    questName,
+    points: Math.round(Number(points) || 0),
     timestamp: new Date(timestamp).toISOString(),
+    ...extraData,
   };
 }
 
+function appendEvent(event) {
+  if (!event) {
+    return 0;
+  }
+
+  const scoreDelta = getEventPointValue(event);
+  state.events.push(event);
+  state.events.sort(sortByTimestamp);
+  state.score = sanitizeScore(state.score + scoreDelta);
+  state.lastRenderedEventId = event.id;
+  return scoreDelta;
+}
+
 function getAppendEventTimestamp() {
+  const now = Date.now();
   const latestTimestamp = state.events.reduce((latest, event) => {
     const time = new Date(event.timestamp).getTime();
     return Number.isFinite(time) ? Math.max(latest, time) : latest;
-  }, Date.now());
+  }, 0);
 
-  return new Date(latestTimestamp + 1000);
+  return new Date(latestTimestamp >= now ? latestTimestamp + 1000 : now);
 }
 
 function getRandomQuest(excludeName = "") {
@@ -1993,15 +2254,17 @@ function selectThemePreference(value) {
   renderPreservingScrollPosition();
 }
 
-function spendScore(amount) {
-  const safeAmount = Math.max(0, Math.round(Number(amount) || 0));
-  const deductedPoints = Math.min(state.score, safeAmount);
-  state.score -= deductedPoints;
-  return deductedPoints;
-}
-
 function createId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function createQuestReferenceId(name) {
+  const slug = sanitizeQuestName(name)
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug ? `quest-ref-${slug}` : createId("quest-ref");
 }
 
 function formatDayLabel(date) {
@@ -2042,11 +2305,12 @@ function sanitizeEvents(value) {
 
   return value
     .map((event, index) => sanitizeEvent(event, index))
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort(sortByTimestamp);
 }
 
 function sanitizeQuestLibrary(value) {
-  if (!Array.isArray(value) || !value.length) {
+  if (!Array.isArray(value)) {
     return cloneQuestLibrary(DEFAULT_QUEST_LIBRARY);
   }
 
@@ -2066,17 +2330,22 @@ function sanitizeQuestLibrary(value) {
     })
     .filter(Boolean);
 
-  return library.length ? library : cloneQuestLibrary(DEFAULT_QUEST_LIBRARY);
+  if (library.length) {
+    return library;
+  }
+
+  return value.length === 0 ? [] : cloneQuestLibrary(DEFAULT_QUEST_LIBRARY);
 }
 
 function sanitizeEvent(event, index) {
   const timestamp = new Date(event?.timestamp || Date.now());
+  const type = sanitizeEventType(event?.type);
 
   if (!Number.isFinite(timestamp.getTime())) {
     return null;
   }
 
-  if (event?.type === "bonus") {
+  if (type === EVENT_TYPE_BONUS) {
     const label = sanitizeQuestName(event?.label);
 
     if (!label) {
@@ -2085,50 +2354,153 @@ function sanitizeEvent(event, index) {
 
     return {
       id: sanitizeQuestName(event?.id) || `bonus-${index}`,
-      type: "bonus",
+      type: EVENT_TYPE_BONUS,
       icon: String(event?.icon ?? ""),
       label,
+      points: sanitizeSignedPoints(event?.points),
       timestamp: timestamp.toISOString(),
     };
   }
 
-  const name = sanitizeQuestName(event?.name);
+  const questName = sanitizeQuestName(event?.questName || event?.name || event?.quest?.name);
 
-  if (!name) {
+  if (!questName) {
     return null;
   }
 
+  const questId =
+    sanitizeQuestName(event?.questId || event?.quest?.id) || createQuestReferenceId(questName);
+  const penaltyCost = sanitizePenaltyCost(event?.penaltyCost, type);
+  const points =
+    type === EVENT_TYPE_COMPLETE
+      ? sanitizePositivePoints(event?.points, QUEST_POINTS)
+      : type === EVENT_TYPE_REROLL || type === EVENT_TYPE_REJECT
+        ? sanitizePenaltyPoints(event?.points, penaltyCost)
+        : 0;
+
   return {
     id: sanitizeQuestName(event?.id) || `quest-${index}`,
-    type: "quest",
-    name,
-    points: QUEST_POINTS,
+    type,
+    questId,
+    questName,
+    points,
+    penaltyCost:
+      type === EVENT_TYPE_REROLL || type === EVENT_TYPE_REJECT ? penaltyCost : undefined,
     timestamp: timestamp.toISOString(),
   };
 }
 
 function deriveScore(rawScore, rawEvents, normalizedEvents) {
-  const currentScore = sanitizeScore(rawScore);
-  const rawQuestTotal = getQuestEventPointTotal(rawEvents);
-  const normalizedQuestTotal = getQuestEventPointTotal(normalizedEvents);
-  const nonQuestAdjustment = currentScore - rawQuestTotal;
+  const normalizedEventTotal = getEventPointTotal(normalizedEvents);
 
-  return Math.max(0, Math.round(normalizedQuestTotal + nonQuestAdjustment));
+  if (!hasNumericValue(rawScore)) {
+    return sanitizeScore(normalizedEventTotal);
+  }
+
+  const currentScore = sanitizeScore(rawScore);
+  const rawEventTotal = getEventPointTotal(rawEvents);
+  // Preserve score adjustments from older saves that predate explicit penalty log events.
+  const legacyAdjustment = currentScore - rawEventTotal;
+
+  return sanitizeScore(normalizedEventTotal + legacyAdjustment);
 }
 
-function getQuestEventPointTotal(events) {
+function getEventPointTotal(events) {
   if (!Array.isArray(events)) {
     return 0;
   }
 
-  return events.reduce((total, event) => {
-    if (event?.type !== "quest") {
-      return total;
-    }
-
-    const points = Number(event?.points);
-    return total + (Number.isFinite(points) ? Math.max(0, Math.round(points)) : QUEST_POINTS);
+  return events.reduce((total, event, index) => {
+    const normalizedEvent = sanitizeEvent(event, index);
+    return total + (normalizedEvent ? getEventPointValue(normalizedEvent) : 0);
   }, 0);
+}
+
+function sanitizeEventType(value) {
+  switch (String(value || "").trim().toLocaleLowerCase()) {
+    case "quest":
+    case EVENT_TYPE_COMPLETE:
+      return EVENT_TYPE_COMPLETE;
+    case "reroll":
+    case EVENT_TYPE_REROLL:
+      return EVENT_TYPE_REROLL;
+    case "reject":
+    case EVENT_TYPE_REJECT:
+      return EVENT_TYPE_REJECT;
+    case EVENT_TYPE_BONUS:
+      return EVENT_TYPE_BONUS;
+    default:
+      return EVENT_TYPE_COMPLETE;
+  }
+}
+
+function sanitizePositivePoints(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : fallback;
+}
+
+function sanitizePenaltyPoints(value, fallback) {
+  const parsed = Number(value);
+
+  if (Number.isFinite(parsed)) {
+    return -Math.abs(Math.round(parsed));
+  }
+
+  return -Math.abs(Math.round(fallback || 0));
+}
+
+function sanitizeSignedPoints(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed) : 0;
+}
+
+function sanitizePenaltyCost(value, type) {
+  const parsed = Number(value);
+
+  if (Number.isFinite(parsed)) {
+    return Math.max(0, Math.round(parsed));
+  }
+
+  return type === EVENT_TYPE_REROLL ? REROLL_COST : REJECT_COST;
+}
+
+function getEventPointValue(event) {
+  const points = Number(event?.points);
+
+  if (Number.isFinite(points)) {
+    return Math.round(points);
+  }
+
+  if (event?.type === EVENT_TYPE_COMPLETE) {
+    return QUEST_POINTS;
+  }
+
+  return 0;
+}
+
+function isQuestPenaltyEvent(event) {
+  return event?.type === EVENT_TYPE_REROLL || event?.type === EVENT_TYPE_REJECT;
+}
+
+function getEventDisplayLabel(event) {
+  if (event?.type === EVENT_TYPE_BONUS) {
+    return event.label;
+  }
+
+  if (event?.type === EVENT_TYPE_REROLL || event?.type === EVENT_TYPE_REJECT) {
+    const prefix = event.type === EVENT_TYPE_REROLL ? "Reroll" : "Reject";
+    return `${prefix} ${formatScoreDelta(getEventPointValue(event))} / ${event.questName}`;
+  }
+
+  return event?.questName || "";
+}
+
+function getEventDisplayBaseFont(event) {
+  return event?.type === EVENT_TYPE_COMPLETE ? 132 : 76;
+}
+
+function hasNumericValue(value) {
+  return Number.isFinite(Number(value));
 }
 
 function compareQuestLibrary(left, right) {
