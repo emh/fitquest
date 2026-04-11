@@ -18,9 +18,16 @@ const VIEW_LIBRARY = "library";
 const VIEW_EXERCISE_EDITOR = "exercise-editor";
 const VIEW_LOCATIONS = "locations";
 const VIEW_LOCATION_EDITOR = "location-editor";
+const VIEW_TIMER = "timer";
 const VIEW_FONT_SETTINGS = "font-settings";
 const VIEW_THEME_SETTINGS = "theme-settings";
 const DEFAULT_LOCATION_ID = "location-default";
+const TIMER_COUNTDOWN_SECONDS = 3;
+const TIMER_PHASE_READY = "ready";
+const TIMER_PHASE_COUNTDOWN = "countdown";
+const TIMER_PHASE_RUNNING = "running";
+const TIMER_PHASE_DONE = "done";
+const TIMER_SOUND_GAIN = 0.08;
 const DEFAULT_FONT_PREFERENCE = "climate-crisis";
 const DEFAULT_THEME_PREFERENCE = "system";
 const LIGHT_THEME_COLOR = "#de2c23";
@@ -259,6 +266,7 @@ const state = {
   selectedLocationId: DEFAULT_LOCATION_ID,
   view: VIEW_TIMELINE,
   pendingQuest: null,
+  timerSession: null,
   launchQuestPlan: null,
   lastRenderedEventId: null,
   hasInitialFocus: false,
@@ -284,6 +292,9 @@ let shouldReloadForServiceWorkerUpdate = false;
 let hasReloadedForServiceWorker = false;
 let locationPickerAnimationTimer = 0;
 let isLocationPickerAnimating = false;
+let timerCountdownTimer = 0;
+let timerAnimationFrame = 0;
+let timerAudioContext = null;
 
 initialize();
 
@@ -388,6 +399,8 @@ function resetState() {
   state.equipmentLibrary = cloneEquipmentLibrary(DEFAULT_EQUIPMENT_LIBRARY);
   state.locations = createDefaultLocations(DEFAULT_EQUIPMENT_LIBRARY);
   state.selectedLocationId = DEFAULT_LOCATION_ID;
+  state.pendingQuest = null;
+  state.timerSession = null;
   state.fontPreference = DEFAULT_FONT_PREFERENCE;
   state.themePreference = DEFAULT_THEME_PREFERENCE;
 }
@@ -411,12 +424,15 @@ function persistState() {
 function applyLoadedState(parsed) {
   const importedData = sanitizeAppData(parsed);
 
+  cancelTimerRuntime();
   state.events = importedData.events;
   state.questLibrary = importedData.questLibrary;
   state.equipmentLibrary = importedData.equipmentLibrary;
   state.locations = importedData.locations;
   state.selectedLocationId = importedData.selectedLocationId;
   state.score = importedData.score;
+  state.pendingQuest = null;
+  state.timerSession = null;
   state.fontPreference = sanitizeFontPreference(parsed?.fontPreference);
   state.themePreference = sanitizeThemePreference(parsed?.themePreference);
 }
@@ -588,11 +604,25 @@ function acceptQuest() {
     return;
   }
 
-  const event = createQuestCompletionEvent(state.pendingQuest.quest, getAppendEventTimestamp());
+  const quest = state.pendingQuest.quest;
+  const timerPlan = createQuestTimerPlan(quest.name);
 
   cancelQuestReel();
-  const scoreDelta = appendEvent(event);
   state.pendingQuest = null;
+
+  if (timerPlan) {
+    state.timerSession = createTimerSession(quest, timerPlan);
+    state.view = VIEW_TIMER;
+    render();
+    return;
+  }
+
+  completeAcceptedQuest(quest);
+}
+
+function completeAcceptedQuest(quest) {
+  const event = createQuestCompletionEvent(quest, getAppendEventTimestamp());
+  const scoreDelta = appendEvent(event);
 
   persistState();
   renderTimelinePinnedToBottom();
@@ -915,6 +945,14 @@ function handleTimelineClick(event) {
   const fontOptionButton = event.target.closest("[data-font-option]");
   const themeOptionButton = event.target.closest("[data-theme-option]");
 
+  if (state.view === VIEW_TIMER) {
+    if (event.target.closest("[data-timer-action]")) {
+      handleTimerAction();
+    }
+
+    return;
+  }
+
   if (welcomePrimaryButton) {
     handlePrimaryButtonClick();
     return;
@@ -1070,6 +1108,10 @@ function render() {
 
   if (state.view === VIEW_TIMELINE && state.pendingQuest?.isRolling) {
     playPendingQuestReel(state.pendingQuest.rollId);
+  }
+
+  if (state.view === VIEW_TIMER) {
+    syncTimerDisplay();
   }
 }
 
@@ -1326,6 +1368,8 @@ function getViewTitle() {
       return "LOCATIONS";
     case VIEW_LOCATION_EDITOR:
       return state.locationDraft?.mode === "edit" ? "EDIT LOCATION" : "NEW LOCATION";
+    case VIEW_TIMER:
+      return "TIMER";
     case VIEW_FONT_SETTINGS:
       return "FONT";
     case VIEW_THEME_SETTINGS:
@@ -1347,6 +1391,8 @@ function getViewAriaLabel() {
       return "Locations";
     case VIEW_LOCATION_EDITOR:
       return "Location editor";
+    case VIEW_TIMER:
+      return "Quest timer";
     case VIEW_FONT_SETTINGS:
       return "Font settings";
     case VIEW_THEME_SETTINGS:
@@ -1373,6 +1419,10 @@ function getHeaderButtonLabel() {
     return "Back to locations";
   }
 
+  if (state.view === VIEW_TIMER) {
+    return "Back to main screen";
+  }
+
   return "Back to settings";
 }
 
@@ -1388,6 +1438,8 @@ function buildCurrentViewMarkup() {
       return buildLocationsMarkup();
     case VIEW_LOCATION_EDITOR:
       return buildLocationEditorMarkup();
+    case VIEW_TIMER:
+      return buildTimerMarkup();
     case VIEW_FONT_SETTINGS:
       return buildFontSettingsMarkup();
     case VIEW_THEME_SETTINGS:
@@ -1441,6 +1493,27 @@ function buildTimelineMarkup() {
   }
 
   return rows.join("");
+}
+
+function buildTimerMarkup() {
+  const label = getTimerDisplayText(state.timerSession);
+
+  return `
+    <section class="timer-screen" aria-label="Quest timer">
+      <button
+        class="timer-circle"
+        type="button"
+        data-timer-action
+        data-timer-circle
+        data-timer-phase="${escapeAttribute(state.timerSession?.phase || TIMER_PHASE_READY)}"
+        aria-label="${escapeAttribute(getTimerActionLabel(state.timerSession))}"
+      >
+        <span class="timer-circle-label" data-timer-label aria-live="polite">
+          ${escapeHtml(label)}
+        </span>
+      </button>
+    </section>
+  `;
 }
 
 function renderWelcomeMessage() {
@@ -2045,6 +2118,7 @@ function sanitizeImportedAppData(payload) {
 }
 
 function applyImportedAppData(importedData) {
+  cancelTimerRuntime();
   stopLibraryDraftViewportSync();
   clearLibraryEditorState();
   state.events = importedData.events;
@@ -2054,6 +2128,7 @@ function applyImportedAppData(importedData) {
   state.selectedLocationId = importedData.selectedLocationId;
   state.score = importedData.score;
   state.pendingQuest = null;
+  state.timerSession = null;
   persistState();
   render();
   runAfterLayout(() => {
@@ -2229,6 +2304,396 @@ function cancelQuestReel() {
 
   reelAnimation.cancel();
   reelAnimation = null;
+}
+
+function createQuestTimerPlan(name) {
+  const stages = parseQuestTimerStages(name);
+
+  if (!stages.length) {
+    return null;
+  }
+
+  return { stages };
+}
+
+function parseQuestTimerStages(name) {
+  const text = sanitizeQuestName(name);
+  const unitPattern = "(s|sec|secs|second|seconds|min|mins|minute|minutes)";
+  const multiStagePattern = new RegExp(
+    [
+      "\\b(\\d+(?:\\.\\d+)?)",
+      `\\s*${unitPattern}?`,
+      "\\s*/\\s*(\\d+(?:\\.\\d+)?)",
+      `\\s*${unitPattern}\\b`,
+    ].join(""),
+    "i"
+  );
+  const singleStagePattern = new RegExp(`\\b(\\d+(?:\\.\\d+)?)\\s*${unitPattern}\\b`, "i");
+  const multiStageMatch = text.match(multiStagePattern);
+
+  if (multiStageMatch) {
+    const firstUnit = multiStageMatch[2] || multiStageMatch[4];
+    const secondUnit = multiStageMatch[4];
+    const firstSeconds = parseTimerSeconds(multiStageMatch[1], firstUnit);
+    const secondSeconds = parseTimerSeconds(multiStageMatch[3], secondUnit);
+
+    return [firstSeconds, secondSeconds]
+      .filter((seconds) => seconds > 0)
+      .map((seconds, index) => ({ id: `stage-${index + 1}`, seconds }));
+  }
+
+  const singleStageMatch = text.match(singleStagePattern);
+
+  if (!singleStageMatch) {
+    return [];
+  }
+
+  const seconds = parseTimerSeconds(singleStageMatch[1], singleStageMatch[2]);
+  return seconds > 0 ? [{ id: "stage-1", seconds }] : [];
+}
+
+function parseTimerSeconds(value, unit) {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return 0;
+  }
+
+  if (/^min/i.test(unit)) {
+    return Math.max(1, Math.round(amount * 60));
+  }
+
+  return Math.max(1, Math.round(amount));
+}
+
+function createTimerSession(quest, plan) {
+  return {
+    id: createId("timer"),
+    quest: {
+      id: quest.id,
+      name: quest.name,
+    },
+    plan,
+    phase: TIMER_PHASE_READY,
+    stageIndex: 0,
+    countdownValue: TIMER_COUNTDOWN_SECONDS,
+    progress: 0,
+    remainingSeconds: plan.stages[0]?.seconds || 0,
+    stageStartedAt: 0,
+    stageEndsAt: 0,
+  };
+}
+
+function handleTimerAction() {
+  const session = state.timerSession;
+
+  if (!session) {
+    return;
+  }
+
+  if (session.phase === TIMER_PHASE_READY) {
+    startTimerCountdown();
+    return;
+  }
+
+  if (session.phase === TIMER_PHASE_DONE) {
+    finishTimerQuest();
+  }
+}
+
+function startTimerCountdown() {
+  const session = state.timerSession;
+
+  if (!session || session.phase !== TIMER_PHASE_READY) {
+    return;
+  }
+
+  session.phase = TIMER_PHASE_COUNTDOWN;
+  session.stageIndex = 0;
+  session.countdownValue = TIMER_COUNTDOWN_SECONDS;
+  session.progress = 0;
+  syncTimerDisplay({ flash: true });
+  playTimerSound("countdown");
+  scheduleTimerCountdownTick();
+}
+
+function scheduleTimerCountdownTick() {
+  window.clearTimeout(timerCountdownTimer);
+  timerCountdownTimer = window.setTimeout(advanceTimerCountdown, 1000);
+}
+
+function advanceTimerCountdown() {
+  timerCountdownTimer = 0;
+
+  const session = state.timerSession;
+
+  if (!session || session.phase !== TIMER_PHASE_COUNTDOWN) {
+    return;
+  }
+
+  if (session.countdownValue > 1) {
+    session.countdownValue -= 1;
+    syncTimerDisplay({ flash: true });
+    playTimerSound("countdown");
+    scheduleTimerCountdownTick();
+    return;
+  }
+
+  startTimerStage();
+}
+
+function startTimerStage() {
+  const session = state.timerSession;
+  const stage = getCurrentTimerStage();
+
+  if (!session || !stage) {
+    return;
+  }
+
+  const now = performance.now();
+  session.phase = TIMER_PHASE_RUNNING;
+  session.stageStartedAt = now;
+  session.stageEndsAt = now + stage.seconds * 1000;
+  session.progress = 0;
+  session.remainingSeconds = stage.seconds;
+  syncTimerDisplay();
+  playTimerSound("start");
+
+  timerAnimationFrame = window.requestAnimationFrame(updateTimerStage);
+}
+
+function updateTimerStage(timestamp) {
+  const session = state.timerSession;
+  const stage = getCurrentTimerStage();
+
+  if (!session || !stage || session.phase !== TIMER_PHASE_RUNNING) {
+    timerAnimationFrame = 0;
+    return;
+  }
+
+  const durationMs = stage.seconds * 1000;
+  const elapsedMs = clamp(timestamp - session.stageStartedAt, 0, durationMs);
+  const remainingMs = Math.max(durationMs - elapsedMs, 0);
+  session.progress = durationMs > 0 ? elapsedMs / durationMs : 1;
+  session.remainingSeconds = Math.ceil(remainingMs / 1000);
+  syncTimerDisplay();
+
+  if (elapsedMs >= durationMs) {
+    finishTimerStage();
+    return;
+  }
+
+  timerAnimationFrame = window.requestAnimationFrame(updateTimerStage);
+}
+
+function finishTimerStage() {
+  const session = state.timerSession;
+
+  timerAnimationFrame = 0;
+
+  if (!session) {
+    return;
+  }
+
+  if (session.stageIndex < session.plan.stages.length - 1) {
+    session.stageIndex += 1;
+    session.phase = TIMER_PHASE_COUNTDOWN;
+    session.countdownValue = TIMER_COUNTDOWN_SECONDS;
+    session.progress = 0;
+    session.remainingSeconds = getCurrentTimerStage()?.seconds || 0;
+    syncTimerDisplay({ flash: true });
+    scheduleTimerCountdownTick();
+    return;
+  }
+
+  session.phase = TIMER_PHASE_DONE;
+  session.progress = 1;
+  session.remainingSeconds = 0;
+  syncTimerDisplay();
+  playTimerSound("done");
+}
+
+function finishTimerQuest() {
+  const session = state.timerSession;
+
+  if (!session || session.phase !== TIMER_PHASE_DONE) {
+    return;
+  }
+
+  const quest = session.quest;
+  cancelTimerRuntime();
+  state.timerSession = null;
+  state.view = VIEW_TIMELINE;
+  completeAcceptedQuest(quest);
+}
+
+function cancelTimerRuntime() {
+  window.clearTimeout(timerCountdownTimer);
+  timerCountdownTimer = 0;
+
+  if (timerAnimationFrame) {
+    window.cancelAnimationFrame(timerAnimationFrame);
+    timerAnimationFrame = 0;
+  }
+}
+
+function getCurrentTimerStage() {
+  const session = state.timerSession;
+  return session?.plan.stages[session.stageIndex] || null;
+}
+
+function syncTimerDisplay({ flash = false } = {}) {
+  const circle = ui.timeline.querySelector("[data-timer-circle]");
+  const label = ui.timeline.querySelector("[data-timer-label]");
+  const session = state.timerSession;
+
+  if (!circle || !label) {
+    return;
+  }
+
+  circle.dataset.timerPhase = session?.phase || TIMER_PHASE_READY;
+  circle.style.setProperty("--timer-progress", `${getTimerProgress(session) * 360}deg`);
+  circle.setAttribute("aria-label", getTimerActionLabel(session));
+  circle.setAttribute(
+    "aria-disabled",
+    session?.phase === TIMER_PHASE_READY || session?.phase === TIMER_PHASE_DONE
+      ? "false"
+      : "true"
+  );
+  label.textContent = getTimerDisplayText(session);
+
+  if (flash) {
+    flashTimerCircle(circle);
+  }
+}
+
+function getTimerProgress(session) {
+  if (!session) {
+    return 0;
+  }
+
+  if (session.phase === TIMER_PHASE_DONE) {
+    return 1;
+  }
+
+  return clamp(session.progress || 0, 0, 1);
+}
+
+function getTimerDisplayText(session) {
+  if (!session || session.phase === TIMER_PHASE_READY) {
+    return "START";
+  }
+
+  if (session.phase === TIMER_PHASE_COUNTDOWN) {
+    return String(session.countdownValue);
+  }
+
+  if (session.phase === TIMER_PHASE_RUNNING) {
+    return String(Math.max(session.remainingSeconds, 0));
+  }
+
+  return "DONE";
+}
+
+function getTimerActionLabel(session) {
+  if (!session || session.phase === TIMER_PHASE_READY) {
+    return "Start timed quest";
+  }
+
+  if (session.phase === TIMER_PHASE_DONE) {
+    return "Finish timed quest";
+  }
+
+  return "Timed quest in progress";
+}
+
+function flashTimerCircle(circle) {
+  if (typeof circle.animate !== "function") {
+    return;
+  }
+
+  circle.animate(
+    [
+      { transform: "scale(1)" },
+      { transform: "scale(1.045)" },
+      { transform: "scale(1)" },
+    ],
+    {
+      duration: 420,
+      easing: "ease-out",
+    }
+  );
+}
+
+function playTimerSound(type) {
+  const context = getTimerAudioContext();
+
+  if (!context) {
+    return;
+  }
+
+  const play = () => {
+    if (type === "countdown") {
+      playTimerTone(context, 660, 0, 0.12, TIMER_SOUND_GAIN, "sine");
+      return;
+    }
+
+    if (type === "start") {
+      playTimerTone(context, 880, 0, 0.1, TIMER_SOUND_GAIN, "triangle");
+      playTimerTone(context, 1175, 0.1, 0.14, TIMER_SOUND_GAIN, "triangle");
+      return;
+    }
+
+    if (type === "done") {
+      playTimerTone(context, 660, 0, 0.12, TIMER_SOUND_GAIN, "triangle");
+      playTimerTone(context, 880, 0.13, 0.12, TIMER_SOUND_GAIN, "triangle");
+      playTimerTone(context, 1320, 0.26, 0.2, TIMER_SOUND_GAIN, "triangle");
+    }
+  };
+
+  if (context.state === "suspended") {
+    context.resume().then(play).catch(() => {});
+    return;
+  }
+
+  play();
+}
+
+function getTimerAudioContext() {
+  if (timerAudioContext) {
+    return timerAudioContext;
+  }
+
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+
+  if (!AudioContextConstructor) {
+    return null;
+  }
+
+  try {
+    timerAudioContext = new AudioContextConstructor();
+  } catch (error) {
+    timerAudioContext = null;
+  }
+
+  return timerAudioContext;
+}
+
+function playTimerTone(context, frequency, offset, duration, gain, type) {
+  const oscillator = context.createOscillator();
+  const gainNode = context.createGain();
+  const startTime = context.currentTime + offset;
+  const endTime = startTime + duration;
+
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, startTime);
+  gainNode.gain.setValueAtTime(0.0001, startTime);
+  gainNode.gain.exponentialRampToValueAtTime(gain, startTime + 0.015);
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, endTime);
+  oscillator.connect(gainNode);
+  gainNode.connect(context.destination);
+  oscillator.start(startTime);
+  oscillator.stop(endTime + 0.02);
 }
 
 function buildQuestRollSequence(excludeName = "") {
