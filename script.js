@@ -1,4 +1,5 @@
-const STORAGE_KEY = "fitness-quest-v2";
+const STORAGE_KEY = "fitness-quest-v3";
+const PREVIOUS_STORAGE_KEY = "fitness-quest-v2";
 const LEGACY_STORAGE_KEYS = ["fitness-quest-v0", "fitness-quest-v1"];
 const SERVICE_WORKER_URL = "./service-worker.js";
 const ROLL_SEQUENCE_LENGTH = 20;
@@ -14,8 +15,12 @@ const REEL_FONT_MAX = 108;
 const VIEW_TIMELINE = "timeline";
 const VIEW_SETTINGS = "settings";
 const VIEW_LIBRARY = "library";
+const VIEW_EXERCISE_EDITOR = "exercise-editor";
+const VIEW_LOCATIONS = "locations";
+const VIEW_LOCATION_EDITOR = "location-editor";
 const VIEW_FONT_SETTINGS = "font-settings";
 const VIEW_THEME_SETTINGS = "theme-settings";
+const DEFAULT_LOCATION_ID = "location-default";
 const DEFAULT_FONT_PREFERENCE = "climate-crisis";
 const DEFAULT_THEME_PREFERENCE = "system";
 const LIGHT_THEME_COLOR = "#de2c23";
@@ -27,7 +32,7 @@ const EVENT_TYPE_BONUS = "bonus";
 const SETTINGS_ACTION_EXPORT = "export-data";
 const SETTINGS_ACTION_IMPORT = "import-data";
 const EXPORT_FORMAT = "fitquest-backup";
-const EXPORT_VERSION = 1;
+const EXPORT_VERSION = 2;
 const SETTINGS_ICON_SVG = `
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -64,35 +69,102 @@ const DEFAULT_QUEST_LIBRARY = [
   { id: "quest-15-pushups", name: "15 pushups", active: true },
   { id: "quest-25-air-squats", name: "25 air squats", active: true },
   { id: "quest-10-burpees", name: "10 burpees", active: true },
-  { id: "quest-25-kettlebell-swings-24kg", name: "25 kettlebell swings (24kg)", active: true },
-  { id: "quest-10-kettlebell-snatches-24kg", name: "10 kettlebell snatches (24kg)", active: true },
+  {
+    id: "quest-25-kettlebell-swings-24kg",
+    name: "25 kettlebell swings (24kg)",
+    active: true,
+    equipmentId: "equipment-24kg-kettlebell",
+  },
+  {
+    id: "quest-10-kettlebell-snatches-24kg",
+    name: "10 kettlebell snatches (24kg)",
+    active: true,
+    equipmentId: "equipment-24kg-kettlebell",
+  },
   {
     id: "quest-10-kettlebell-goblet-squats-24kg",
     name: "10 kettlebell goblet squats (24kg)",
     active: true,
+    equipmentId: "equipment-24kg-kettlebell",
   },
-  { id: "quest-50-alternating-mace-360-6kg", name: "50 alternating mace 360 (6kg)", active: true },
-  { id: "quest-10-banded-pullups-blue", name: "10 banded pullups (blue)", active: true },
-  { id: "quest-10-ring-rows", name: "10 ring rows", active: true },
-  { id: "quest-1min-heavy-bag", name: "1min heavy bag", active: true },
+  {
+    id: "quest-50-alternating-mace-360-6kg",
+    name: "50 alternating mace 360 (6kg)",
+    active: true,
+    equipmentId: "equipment-6kg-steel-mace",
+  },
+  {
+    id: "quest-10-banded-pullups-blue",
+    name: "10 banded pullups (blue)",
+    active: true,
+    equipmentId: "equipment-blue-pull-up-band",
+  },
+  { id: "quest-10-ring-rows", name: "10 ring rows", active: true, equipmentId: "equipment-rings" },
+  {
+    id: "quest-1min-heavy-bag",
+    name: "1min heavy bag",
+    active: true,
+    equipmentId: "equipment-heavy-bag",
+  },
   { id: "quest-1min-horse-stance", name: "1min horse stance", active: true },
   { id: "quest-30-30s-iso-lunges", name: "30/30s iso lunges", active: true },
-  { id: "quest-1min-passive-bar-hang", name: "1min passive bar hang", active: true },
+  {
+    id: "quest-1min-passive-bar-hang",
+    name: "1min passive bar hang",
+    active: true,
+    equipmentId: "equipment-bar",
+  },
   { id: "quest-1min-plank", name: "1min plank", active: true },
   { id: "quest-30-30s-side-plank", name: "30/30s side plank", active: true },
   {
     id: "quest-10-10-kb-single-leg-deadlift-24kg",
     name: "10/10 kb single leg deadlift (24kg)",
     active: true,
+    equipmentId: "equipment-24kg-kettlebell",
   },
   {
     id: "quest-10-10-kb-bulgarian-split-squat-24kg",
     name: "10/10 kb bulgarian split squat (24kg)",
     active: true,
+    equipmentId: "equipment-24kg-kettlebell",
   },
   { id: "quest-1min-deep-squat", name: "1min deep squat", active: true },
-  { id: "quest-5-ab-wheel", name: "5 ab wheel", active: true },
-  { id: "quest-10-10-hand-gripper-l1", name: "10/10 hand gripper (L1)", active: true },
+  { id: "quest-5-ab-wheel", name: "5 ab wheel", active: true, equipmentId: "equipment-ab-wheel" },
+  {
+    id: "quest-10-10-hand-gripper-l1",
+    name: "10/10 hand gripper (L1)",
+    active: true,
+    equipmentId: "equipment-l1-hand-gripper",
+  },
+];
+
+const DEFAULT_EQUIPMENT_LIBRARY = [
+  { id: "equipment-24kg-kettlebell", name: "24kg kettlebell" },
+  { id: "equipment-6kg-steel-mace", name: "6kg steel mace" },
+  { id: "equipment-blue-pull-up-band", name: "blue pull-up band" },
+  { id: "equipment-rings", name: "rings" },
+  { id: "equipment-heavy-bag", name: "heavy bag" },
+  { id: "equipment-bar", name: "bar" },
+  { id: "equipment-ab-wheel", name: "ab wheel" },
+  { id: "equipment-l1-hand-gripper", name: "L1 hand gripper" },
+];
+
+const EQUIPMENT_INFERENCE_RULES = [
+  { id: "equipment-kettlebell", name: "kettlebell", pattern: /\b(kb|kettlebell)\b/i },
+  { id: "equipment-steel-mace", name: "steel mace", pattern: /\bmace\b/i },
+  { id: "equipment-pull-up-band", name: "pull-up band", pattern: /banded pullups|\bband\b/i },
+  { id: "equipment-rings", name: "rings", pattern: /\bring rows?\b/i },
+  { id: "equipment-heavy-bag", name: "heavy bag", pattern: /\bheavy bag\b/i },
+  { id: "equipment-bar", name: "bar", pattern: /\bbar hang\b/i },
+  { id: "equipment-ab-wheel", name: "ab wheel", pattern: /\bab wheel\b/i },
+  { id: "equipment-hand-gripper", name: "hand gripper", pattern: /\bhand gripper\b/i },
+  { id: "equipment-jump-rope", name: "jump rope", pattern: /\bjump rope\b/i },
+  { id: "equipment-dumbbell", name: "dumbbell", pattern: /\bdumbbell\b/i },
+  { id: "equipment-foam-roller", name: "foam roller", pattern: /\bfoam roll/i },
+  { id: "equipment-steel-club", name: "steel club", pattern: /\bsteel club\b/i },
+  { id: "equipment-heavy-rope", name: "heavy rope", pattern: /\bheavy rope\b/i },
+  { id: "equipment-medicine-ball", name: "medicine ball", pattern: /\bmed(?:icine)? ball\b/i },
+  { id: "equipment-slackboard", name: "slackboard", pattern: /\bslack board\b|\bslackboard\b/i },
 ];
 
 const FONT_OPTIONS = [
@@ -164,11 +236,15 @@ const ui = {
   librarySelectionControls: document.querySelector("#librarySelectionControls"),
   toggleQuestButton: document.querySelector("#toggleQuestButton"),
   toggleQuestLabel: document.querySelector("#toggleQuestLabel"),
+  editQuestButton: document.querySelector("#editQuestButton"),
   deleteQuestButton: document.querySelector("#deleteQuestButton"),
   libraryCancelButton: document.querySelector("#libraryCancelButton"),
   libraryCreateControls: document.querySelector("#libraryCreateControls"),
   saveQuestButton: document.querySelector("#saveQuestButton"),
   cancelCreateButton: document.querySelector("#cancelCreateButton"),
+  locationPicker: document.querySelector("#locationPicker"),
+  locationPickerButton: document.querySelector("#locationPickerButton"),
+  locationPickerLabel: document.querySelector("#locationPickerLabel"),
   feedback: document.querySelector("#feedback"),
   importFileInput: document.querySelector("#importFileInput"),
   themeColorMeta: document.querySelector('meta[name="theme-color"]'),
@@ -178,6 +254,9 @@ const state = {
   score: 0,
   events: [],
   questLibrary: cloneQuestLibrary(DEFAULT_QUEST_LIBRARY),
+  equipmentLibrary: cloneEquipmentLibrary(DEFAULT_EQUIPMENT_LIBRARY),
+  locations: createDefaultLocations(DEFAULT_EQUIPMENT_LIBRARY),
+  selectedLocationId: DEFAULT_LOCATION_ID,
   view: VIEW_TIMELINE,
   pendingQuest: null,
   launchQuestPlan: null,
@@ -186,6 +265,8 @@ const state = {
   isStartingQuest: false,
   librarySelectedQuestId: null,
   libraryDraftQuest: null,
+  locationSelectedId: null,
+  locationDraft: null,
   fontPreference: DEFAULT_FONT_PREFERENCE,
   themePreference: DEFAULT_THEME_PREFERENCE,
 };
@@ -201,6 +282,8 @@ let afterLayoutCallbacks = [];
 let storageAvailable = true;
 let shouldReloadForServiceWorkerUpdate = false;
 let hasReloadedForServiceWorker = false;
+let locationPickerAnimationTimer = 0;
+let isLocationPickerAnimating = false;
 
 initialize();
 
@@ -235,10 +318,12 @@ function bindEvents() {
   ui.rejectButton.addEventListener("click", rejectQuest);
   ui.rerollButton.addEventListener("click", rerollQuest);
   ui.toggleQuestButton.addEventListener("click", toggleSelectedQuestActive);
+  ui.editQuestButton?.addEventListener("click", editSelectedItem);
   ui.deleteQuestButton.addEventListener("click", deleteSelectedQuest);
   ui.libraryCancelButton.addEventListener("click", clearLibrarySelection);
-  ui.saveQuestButton.addEventListener("click", saveLibraryDraft);
-  ui.cancelCreateButton.addEventListener("click", cancelLibraryDraft);
+  ui.saveQuestButton.addEventListener("click", saveCurrentDraft);
+  ui.cancelCreateButton.addEventListener("click", cancelCurrentDraft);
+  ui.locationPicker?.addEventListener("click", handleLocationPickerClick);
   ui.timeline.addEventListener("click", handleTimelineClick);
   ui.timeline.addEventListener("input", handleTimelineInput);
   ui.timeline.addEventListener("keydown", handleTimelineKeydown);
@@ -265,49 +350,85 @@ function bindEvents() {
 function loadState() {
   const saved = readStorageItem(STORAGE_KEY);
 
-  if (!saved) {
-    resetState();
-    persistState();
-    return;
+  if (saved) {
+    try {
+      applyLoadedState(JSON.parse(saved));
+      return;
+    } catch (error) {
+      resetState();
+      persistState();
+      return;
+    }
   }
 
-  try {
-    const parsed = JSON.parse(saved);
-    state.events = sanitizeEvents(parsed.events);
-    state.questLibrary = sanitizeQuestLibrary(parsed.questLibrary);
-    state.score = deriveScore(parsed.score, parsed.events, state.events);
-    state.fontPreference = sanitizeFontPreference(parsed.fontPreference);
-    state.themePreference = sanitizeThemePreference(parsed.themePreference);
-  } catch (error) {
-    resetState();
-    persistState();
+  const previousSaved = readStorageItem(PREVIOUS_STORAGE_KEY);
+
+  if (previousSaved) {
+    try {
+      applyLoadedState(JSON.parse(previousSaved));
+      if (persistState()) {
+        removeStorageItem(PREVIOUS_STORAGE_KEY);
+      }
+      return;
+    } catch (error) {
+      resetState();
+      persistState();
+      return;
+    }
   }
+
+  resetState();
+  persistState();
 }
 
 function resetState() {
   state.score = 0;
   state.events = [];
   state.questLibrary = cloneQuestLibrary(DEFAULT_QUEST_LIBRARY);
+  state.equipmentLibrary = cloneEquipmentLibrary(DEFAULT_EQUIPMENT_LIBRARY);
+  state.locations = createDefaultLocations(DEFAULT_EQUIPMENT_LIBRARY);
+  state.selectedLocationId = DEFAULT_LOCATION_ID;
   state.fontPreference = DEFAULT_FONT_PREFERENCE;
   state.themePreference = DEFAULT_THEME_PREFERENCE;
 }
 
 function persistState() {
-  writeStorageItem(
+  return writeStorageItem(
     STORAGE_KEY,
     JSON.stringify({
       score: state.score,
       events: state.events,
       questLibrary: state.questLibrary,
+      equipmentLibrary: state.equipmentLibrary,
+      locations: state.locations,
+      selectedLocationId: state.selectedLocationId,
       fontPreference: state.fontPreference,
       themePreference: state.themePreference,
     })
   );
 }
 
+function applyLoadedState(parsed) {
+  const importedData = sanitizeAppData(parsed);
+
+  state.events = importedData.events;
+  state.questLibrary = importedData.questLibrary;
+  state.equipmentLibrary = importedData.equipmentLibrary;
+  state.locations = importedData.locations;
+  state.selectedLocationId = importedData.selectedLocationId;
+  state.score = importedData.score;
+  state.fontPreference = sanitizeFontPreference(parsed?.fontPreference);
+  state.themePreference = sanitizeThemePreference(parsed?.themePreference);
+}
+
 function handlePrimaryButtonClick() {
   if (state.view === VIEW_LIBRARY) {
     startLibraryDraft();
+    return;
+  }
+
+  if (state.view === VIEW_LOCATIONS) {
+    startLocationDraft();
     return;
   }
 
@@ -331,7 +452,7 @@ function openSettingsView() {
   }
 
   stopLibraryDraftViewportSync();
-  clearLibraryEditorState();
+  clearEditorState();
   state.view = VIEW_SETTINGS;
   render();
   runAfterLayout(() => {
@@ -341,7 +462,7 @@ function openSettingsView() {
 
 function closeAuxiliaryView() {
   stopLibraryDraftViewportSync();
-  clearLibraryEditorState();
+  clearEditorState();
   state.view = VIEW_TIMELINE;
   render();
   runAfterLayout(() => {
@@ -350,6 +471,28 @@ function closeAuxiliaryView() {
 }
 
 function navigateBackFromAuxiliaryView() {
+  if (state.view === VIEW_EXERCISE_EDITOR) {
+    stopLibraryDraftViewportSync();
+    clearLibraryEditorState();
+    state.view = VIEW_LIBRARY;
+    render();
+    runAfterLayout(() => {
+      scrollToDocumentTop("auto");
+    });
+    return;
+  }
+
+  if (state.view === VIEW_LOCATION_EDITOR) {
+    stopLibraryDraftViewportSync();
+    clearLocationEditorState();
+    state.view = VIEW_LOCATIONS;
+    render();
+    runAfterLayout(() => {
+      scrollToDocumentTop("auto");
+    });
+    return;
+  }
+
   if (state.view === VIEW_LIBRARY) {
     stopLibraryDraftViewportSync();
     clearLibraryEditorState();
@@ -361,7 +504,14 @@ function navigateBackFromAuxiliaryView() {
     return;
   }
 
-  if (state.view === VIEW_FONT_SETTINGS || state.view === VIEW_THEME_SETTINGS) {
+  if (
+    state.view === VIEW_LOCATIONS ||
+    state.view === VIEW_FONT_SETTINGS ||
+    state.view === VIEW_THEME_SETTINGS
+  ) {
+    if (state.view === VIEW_LOCATIONS) {
+      clearLocationEditorState();
+    }
     state.view = VIEW_SETTINGS;
     render();
     runAfterLayout(() => {
@@ -378,12 +528,12 @@ function openSettingsSubscreen(view) {
     return;
   }
 
-  if (![VIEW_LIBRARY, VIEW_FONT_SETTINGS, VIEW_THEME_SETTINGS].includes(view)) {
+  if (![VIEW_LIBRARY, VIEW_LOCATIONS, VIEW_FONT_SETTINGS, VIEW_THEME_SETTINGS].includes(view)) {
     return;
   }
 
   stopLibraryDraftViewportSync();
-  clearLibraryEditorState();
+  clearEditorState();
   state.view = view;
   render();
   runAfterLayout(() => {
@@ -398,6 +548,12 @@ function openQuestFlow() {
 
   if (!getActiveQuestLibrary().length) {
     showFeedback("NO ACTIVE QUESTS");
+    return;
+  }
+
+  if (!getAvailableQuestLibrary().length) {
+    showFeedback("NO QUESTS HERE");
+    render();
     return;
   }
 
@@ -489,28 +645,42 @@ function startLibraryDraft() {
     id: createId("library-quest"),
     name: "new quest",
     active: true,
+    equipmentId: null,
+    equipmentName: "",
+    mode: "create",
   };
   state.librarySelectedQuestId = null;
+  state.view = VIEW_EXERCISE_EDITOR;
   render();
   focusLibraryDraftInput();
 }
 
 function saveLibraryDraft() {
-  if (!state.libraryDraftQuest) {
+  if (!state.libraryDraftQuest || state.view !== VIEW_EXERCISE_EDITOR) {
     return;
   }
 
-  const quest = {
-    ...state.libraryDraftQuest,
-    name: sanitizeQuestName(state.libraryDraftQuest.name) || "new quest",
-    active: true,
-  };
+  const draft = state.libraryDraftQuest;
+  const equipmentId = resolveDraftEquipmentId(draft.equipmentName);
+  const quest = sanitizeQuest({
+    id: draft.id,
+    name: sanitizeQuestName(draft.name) || "new quest",
+    active: draft.active !== false,
+    equipmentId,
+  });
 
   stopLibraryDraftViewportSync();
-  state.questLibrary.push(quest);
+  if (draft.mode === "edit") {
+    state.questLibrary = state.questLibrary.map((item) => (item.id === quest.id ? quest : item));
+  } else {
+    state.questLibrary.push(quest);
+  }
+
+  syncEquipmentLibraryFromQuestLibrary();
   state.libraryDraftQuest = null;
   state.librarySelectedQuestId = quest.id;
   persistState();
+  state.view = VIEW_LIBRARY;
   render();
   runAfterLayout(() => {
     revealLibraryQuest(quest.id, "auto");
@@ -524,15 +694,184 @@ function cancelLibraryDraft() {
 
   stopLibraryDraftViewportSync();
   state.libraryDraftQuest = null;
+  state.view = VIEW_LIBRARY;
   render();
 }
 
+function saveCurrentDraft() {
+  if (state.view === VIEW_LOCATION_EDITOR) {
+    saveLocationDraft();
+    return;
+  }
+
+  saveLibraryDraft();
+}
+
+function cancelCurrentDraft() {
+  if (state.view === VIEW_LOCATION_EDITOR) {
+    cancelLocationDraft();
+    return;
+  }
+
+  cancelLibraryDraft();
+}
+
 function clearLibrarySelection() {
+  if (state.view === VIEW_LOCATIONS) {
+    clearLocationSelection();
+    return;
+  }
+
   if (!state.librarySelectedQuestId) {
     return;
   }
 
   state.librarySelectedQuestId = null;
+  renderPreservingScrollPosition();
+}
+
+function editSelectedItem() {
+  if (state.view === VIEW_LOCATIONS) {
+    editSelectedLocation();
+    return;
+  }
+
+  editSelectedQuest();
+}
+
+function editSelectedQuest() {
+  const quest = getSelectedLibraryQuest();
+
+  if (!quest || state.view !== VIEW_LIBRARY) {
+    return;
+  }
+
+  state.libraryDraftQuest = {
+    ...quest,
+    equipmentName: getEquipmentNameById(quest.equipmentId),
+    mode: "edit",
+  };
+  state.view = VIEW_EXERCISE_EDITOR;
+  render();
+  focusLibraryDraftInput();
+}
+
+function startLocationDraft() {
+  if (state.view !== VIEW_LOCATIONS || state.locationDraft || getSelectedLocation()) {
+    return;
+  }
+
+  state.locationDraft = {
+    id: createId("location"),
+    name: "new location",
+    equipmentIds: [],
+    mode: "create",
+  };
+  state.locationSelectedId = null;
+  state.view = VIEW_LOCATION_EDITOR;
+  render();
+  focusLibraryDraftInput();
+}
+
+function editSelectedLocation() {
+  const location = getSelectedLocation();
+
+  if (!location || state.view !== VIEW_LOCATIONS) {
+    return;
+  }
+
+  state.locationDraft = {
+    ...location,
+    equipmentIds: [...location.equipmentIds],
+    mode: "edit",
+  };
+  state.view = VIEW_LOCATION_EDITOR;
+  render();
+  focusLibraryDraftInput();
+}
+
+function saveLocationDraft() {
+  if (!state.locationDraft || state.view !== VIEW_LOCATION_EDITOR) {
+    return;
+  }
+
+  const draft = state.locationDraft;
+  const location = {
+    id: draft.id,
+    name: sanitizeLocationName(draft.name) || "new location",
+    equipmentIds: [...new Set(draft.equipmentIds)].filter((equipmentId) =>
+      getEquipmentIdSet().has(equipmentId)
+    ),
+  };
+
+  stopLibraryDraftViewportSync();
+
+  if (draft.mode === "edit") {
+    state.locations = state.locations.map((item) => (item.id === location.id ? location : item));
+  } else {
+    state.locations.push(location);
+  }
+
+  state.locationDraft = null;
+  state.locationSelectedId = location.id;
+  state.selectedLocationId = sanitizeSelectedLocationId(state.selectedLocationId, state.locations);
+  persistState();
+  state.view = VIEW_LOCATIONS;
+  render();
+  runAfterLayout(() => {
+    revealLocation(location.id, "auto");
+  });
+}
+
+function cancelLocationDraft() {
+  if (!state.locationDraft) {
+    return;
+  }
+
+  stopLibraryDraftViewportSync();
+  state.locationDraft = null;
+  state.view = VIEW_LOCATIONS;
+  render();
+}
+
+function clearLocationSelection() {
+  if (!state.locationSelectedId) {
+    return;
+  }
+
+  state.locationSelectedId = null;
+  renderPreservingScrollPosition();
+}
+
+function deleteSelectedLocation() {
+  const location = getSelectedLocation();
+
+  if (!location || state.locations.length <= 1) {
+    return;
+  }
+
+  state.locations = state.locations.filter((item) => item.id !== location.id);
+  state.locationSelectedId = null;
+  state.selectedLocationId = sanitizeSelectedLocationId(state.selectedLocationId, state.locations);
+  persistState();
+  renderPreservingScrollPosition();
+  showFeedback("DELETED");
+}
+
+function toggleDraftLocationEquipment(equipmentId) {
+  const draft = state.locationDraft;
+  const safeEquipmentId = sanitizeId(equipmentId);
+
+  if (!draft || !getEquipmentIdSet().has(safeEquipmentId)) {
+    return;
+  }
+
+  if (draft.equipmentIds.includes(safeEquipmentId)) {
+    draft.equipmentIds = draft.equipmentIds.filter((item) => item !== safeEquipmentId);
+  } else {
+    draft.equipmentIds = [...draft.equipmentIds, safeEquipmentId];
+  }
+
   renderPreservingScrollPosition();
 }
 
@@ -549,6 +888,11 @@ function toggleSelectedQuestActive() {
 }
 
 function deleteSelectedQuest() {
+  if (state.view === VIEW_LOCATIONS) {
+    deleteSelectedLocation();
+    return;
+  }
+
   const quest = getSelectedLibraryQuest();
 
   if (!quest) {
@@ -556,6 +900,7 @@ function deleteSelectedQuest() {
   }
 
   state.questLibrary = state.questLibrary.filter((item) => item.id !== quest.id);
+  syncEquipmentLibraryFromQuestLibrary();
   state.librarySelectedQuestId = null;
   persistState();
   renderPreservingScrollPosition();
@@ -600,6 +945,46 @@ function handleTimelineClick(event) {
     return;
   }
 
+  if (state.view === VIEW_EXERCISE_EDITOR) {
+    const equipmentSuggestion = event.target.closest("[data-equipment-suggestion-id]");
+
+    if (!equipmentSuggestion || !state.libraryDraftQuest) {
+      return;
+    }
+
+    state.libraryDraftQuest.equipmentName = getEquipmentNameById(
+      equipmentSuggestion.dataset.equipmentSuggestionId
+    );
+    renderPreservingScrollPosition();
+    runAfterLayout(() => {
+      focusExerciseEquipmentInput();
+    });
+    return;
+  }
+
+  if (state.view === VIEW_LOCATIONS) {
+    const locationRow = event.target.closest("[data-location-id]");
+
+    if (!locationRow) {
+      return;
+    }
+
+    state.locationSelectedId = locationRow.dataset.locationId;
+    renderPreservingScrollPosition();
+    return;
+  }
+
+  if (state.view === VIEW_LOCATION_EDITOR) {
+    const equipmentRow = event.target.closest("[data-location-equipment-id]");
+
+    if (!equipmentRow) {
+      return;
+    }
+
+    toggleDraftLocationEquipment(equipmentRow.dataset.locationEquipmentId);
+    return;
+  }
+
   if (state.view !== VIEW_LIBRARY || state.libraryDraftQuest) {
     return;
   }
@@ -615,26 +1000,47 @@ function handleTimelineClick(event) {
 }
 
 function handleTimelineInput(event) {
-  if (state.view !== VIEW_LIBRARY) {
+  if (state.view === VIEW_EXERCISE_EDITOR) {
+    const nameInput = event.target.closest("[data-exercise-name-input]");
+    const equipmentInput = event.target.closest("[data-exercise-equipment-input]");
+
+    if (!state.libraryDraftQuest || (!nameInput && !equipmentInput)) {
+      return;
+    }
+
+    if (nameInput) {
+      state.libraryDraftQuest.name = nameInput.value;
+      fitEditableQuestInput(nameInput);
+    }
+
+    if (equipmentInput) {
+      state.libraryDraftQuest.equipmentName = equipmentInput.value;
+      fitEditableQuestInput(equipmentInput);
+      syncEquipmentSuggestions();
+    }
     return;
   }
 
-  const input = event.target.closest("[data-library-draft-input]");
+  if (state.view === VIEW_LOCATION_EDITOR) {
+    const input = event.target.closest("[data-location-name-input]");
 
-  if (!input || !state.libraryDraftQuest) {
-    return;
+    if (!input || !state.locationDraft) {
+      return;
+    }
+
+    state.locationDraft.name = input.value;
+    fitEditableQuestInput(input);
   }
-
-  state.libraryDraftQuest.name = input.value;
-  fitEditableQuestInput(input);
 }
 
 function handleTimelineKeydown(event) {
-  if (state.view !== VIEW_LIBRARY) {
+  if (state.view !== VIEW_EXERCISE_EDITOR && state.view !== VIEW_LOCATION_EDITOR) {
     return;
   }
 
-  const input = event.target.closest("[data-library-draft-input]");
+  const input = event.target.closest(
+    "[data-exercise-name-input], [data-exercise-equipment-input], [data-location-name-input]"
+  );
 
   if (!input) {
     return;
@@ -642,12 +1048,12 @@ function handleTimelineKeydown(event) {
 
   if (event.key === "Enter") {
     event.preventDefault();
-    saveLibraryDraft();
+    saveCurrentDraft();
   }
 
   if (event.key === "Escape") {
     event.preventDefault();
-    cancelLibraryDraft();
+    cancelCurrentDraft();
   }
 }
 
@@ -658,6 +1064,7 @@ function render() {
   ui.timeline.setAttribute("aria-label", getViewAriaLabel());
   ui.timeline.innerHTML = buildCurrentViewMarkup();
   syncControls();
+  syncLocationPicker();
   state.lastRenderedEventId = null;
   scheduleFitText();
 
@@ -706,28 +1113,44 @@ function updateScoreDisplay() {
 function syncControls() {
   const isTimelineView = state.view === VIEW_TIMELINE;
   const isLibraryView = state.view === VIEW_LIBRARY;
+  const isLocationsView = state.view === VIEW_LOCATIONS;
+  const isExerciseEditorView = state.view === VIEW_EXERCISE_EDITOR;
+  const isLocationEditorView = state.view === VIEW_LOCATION_EDITOR;
   const hasPendingQuest = Boolean(state.pendingQuest);
   const isRolling = Boolean(state.pendingQuest?.isRolling);
   const selectedQuest = getSelectedLibraryQuest();
-  const hasLibraryDraft = Boolean(state.libraryDraftQuest);
+  const selectedLocation = getSelectedLocation();
+  const hasLibraryDraft = Boolean(state.libraryDraftQuest) && isExerciseEditorView;
+  const hasLocationDraft = Boolean(state.locationDraft) && isLocationEditorView;
   const hasLibrarySelection = Boolean(selectedQuest) && !hasLibraryDraft;
+  const hasLocationSelection = Boolean(selectedLocation) && !hasLocationDraft;
+  const hasSelectionControls =
+    (isLibraryView && hasLibrarySelection) || (isLocationsView && hasLocationSelection);
+  const hasEditorControls = hasLibraryDraft || hasLocationDraft;
   const hasBottomControls =
-    (isTimelineView && hasPendingQuest) || (isLibraryView && (hasLibrarySelection || hasLibraryDraft));
+    (isTimelineView && hasPendingQuest) || hasSelectionControls || hasEditorControls;
 
   setControlsClearance(hasBottomControls ? ACTIVE_CONTROLS_CLEARANCE : 0);
 
   const shouldShowQuestButton =
     (isTimelineView && !hasPendingQuest && !state.isStartingQuest) ||
-    (isLibraryView && !hasLibraryDraft && !hasLibrarySelection);
+    (isLibraryView && !hasLibrarySelection) ||
+    (isLocationsView && !hasLocationSelection);
+
+  setQuestFabClearance(shouldShowQuestButton ? ACTIVE_CONTROLS_CLEARANCE : 0);
 
   ui.questButton.classList.toggle(
     "is-hidden",
     !shouldShowQuestButton
   );
-  ui.questButton.disabled = state.isStartingQuest || (!isTimelineView && !isLibraryView);
+  ui.questButton.disabled = state.isStartingQuest || (!isTimelineView && !isLibraryView && !isLocationsView);
   ui.questButton.setAttribute(
     "aria-label",
-    isLibraryView ? "Add a new quest to the library" : "Start a new quest"
+    isLocationsView
+      ? "Add a new location"
+      : isLibraryView
+        ? "Add a new quest to the library"
+        : "Start a new quest"
   );
 
   ui.questControls.classList.toggle("is-visible", isTimelineView && hasPendingQuest);
@@ -735,8 +1158,33 @@ function syncControls() {
   ui.rerollButton.disabled = !hasPendingQuest;
   ui.rejectButton.disabled = !hasPendingQuest;
 
-  ui.librarySelectionControls.classList.toggle("is-visible", isLibraryView && hasLibrarySelection);
-  ui.libraryCreateControls.classList.toggle("is-visible", isLibraryView && hasLibraryDraft);
+  ui.librarySelectionControls.classList.toggle("is-visible", hasSelectionControls);
+  ui.libraryCreateControls.classList.toggle("is-visible", hasEditorControls);
+
+  ui.toggleQuestButton.classList.toggle("is-hidden", !isLibraryView);
+  ui.editQuestButton?.classList.toggle("is-hidden", !hasSelectionControls);
+  ui.deleteQuestButton.classList.toggle("is-hidden", !hasSelectionControls);
+
+  if (isLocationsView) {
+    ui.editQuestButton?.setAttribute("aria-label", "Edit location");
+    ui.deleteQuestButton.setAttribute("aria-label", "Delete location");
+    ui.deleteQuestButton.disabled = !selectedLocation || state.locations.length <= 1;
+    ui.libraryCancelButton.setAttribute("aria-label", "Deselect location");
+  } else {
+    ui.editQuestButton?.setAttribute("aria-label", "Edit quest");
+    ui.deleteQuestButton.setAttribute("aria-label", "Delete quest");
+    ui.deleteQuestButton.disabled = !selectedQuest;
+    ui.libraryCancelButton.setAttribute("aria-label", "Deselect quest");
+  }
+
+  ui.saveQuestButton.setAttribute(
+    "aria-label",
+    isLocationEditorView ? "Save location" : "Save quest"
+  );
+  ui.cancelCreateButton.setAttribute(
+    "aria-label",
+    isLocationEditorView ? "Cancel location changes" : "Cancel quest changes"
+  );
 
   if (selectedQuest) {
     const isActive = selectedQuest.active !== false;
@@ -753,12 +1201,131 @@ function syncControls() {
   }
 }
 
+function syncLocationPicker() {
+  if (!ui.locationPicker || !ui.locationPickerButton || !ui.locationPickerLabel) {
+    return;
+  }
+
+  const shouldShow =
+    state.view === VIEW_TIMELINE &&
+    !state.pendingQuest &&
+    !state.isStartingQuest &&
+    state.locations.length > 1;
+  const currentLocation = getCurrentLocation();
+
+  if (!shouldShow) {
+    cancelLocationPickerAnimation();
+  }
+
+  ui.locationPicker.classList.toggle("is-visible", shouldShow);
+  ui.locationPickerButton.disabled = !shouldShow;
+  setLocationFooterClearance(shouldShow ? ui.locationPicker.getBoundingClientRect().height : 0);
+
+  if (!isLocationPickerAnimating) {
+    ui.locationPickerLabel.textContent = currentLocation?.name || "Default";
+  }
+}
+
+function handleLocationPickerClick(event) {
+  if (!event.target.closest("#locationPickerButton")) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (
+    state.view !== VIEW_TIMELINE ||
+    state.pendingQuest ||
+    state.locations.length <= 1 ||
+    isLocationPickerAnimating
+  ) {
+    return;
+  }
+
+  cycleCurrentLocation();
+}
+
+function cycleCurrentLocation() {
+  const currentLocation = getCurrentLocation();
+  const nextLocation = getNextLocation(currentLocation?.id);
+
+  if (!currentLocation || !nextLocation || currentLocation.id === nextLocation.id) {
+    return;
+  }
+
+  animateLocationPickerTransition(currentLocation, nextLocation);
+}
+
+function getNextLocation(locationId) {
+  const currentIndex = state.locations.findIndex((location) => location.id === locationId);
+
+  if (currentIndex < 0) {
+    return state.locations[0] || null;
+  }
+
+  return state.locations[(currentIndex + 1) % state.locations.length] || null;
+}
+
+function animateLocationPickerTransition(currentLocation, nextLocation) {
+  if (!ui.locationPicker || !ui.locationPickerLabel) {
+    selectCurrentLocation(nextLocation.id);
+    return;
+  }
+
+  window.clearTimeout(locationPickerAnimationTimer);
+  isLocationPickerAnimating = true;
+  ui.locationPicker.classList.add("is-switching");
+  ui.locationPickerLabel.innerHTML = `
+    <span class="location-picker-slide location-picker-slide-current">
+      ${escapeHtml(currentLocation.name)}
+    </span>
+    <span class="location-picker-slide location-picker-slide-next">
+      ${escapeHtml(nextLocation.name)}
+    </span>
+  `;
+
+  locationPickerAnimationTimer = window.setTimeout(() => {
+    locationPickerAnimationTimer = 0;
+    isLocationPickerAnimating = false;
+    ui.locationPicker.classList.remove("is-switching");
+    selectCurrentLocation(nextLocation.id);
+  }, 260);
+}
+
+function cancelLocationPickerAnimation() {
+  window.clearTimeout(locationPickerAnimationTimer);
+  locationPickerAnimationTimer = 0;
+  isLocationPickerAnimating = false;
+
+  if (ui.locationPicker) {
+    ui.locationPicker.classList.remove("is-switching");
+  }
+}
+
+function selectCurrentLocation(locationId) {
+  const safeLocationId = sanitizeId(locationId);
+
+  if (!state.locations.some((location) => location.id === safeLocationId)) {
+    return;
+  }
+
+  state.selectedLocationId = safeLocationId;
+  persistState();
+  syncLocationPicker();
+}
+
 function getViewTitle() {
   switch (state.view) {
     case VIEW_SETTINGS:
       return "SETTINGS";
     case VIEW_LIBRARY:
       return "QUEST LIBRARY";
+    case VIEW_EXERCISE_EDITOR:
+      return state.libraryDraftQuest?.mode === "edit" ? "EDIT QUEST" : "NEW QUEST";
+    case VIEW_LOCATIONS:
+      return "LOCATIONS";
+    case VIEW_LOCATION_EDITOR:
+      return state.locationDraft?.mode === "edit" ? "EDIT LOCATION" : "NEW LOCATION";
     case VIEW_FONT_SETTINGS:
       return "FONT";
     case VIEW_THEME_SETTINGS:
@@ -774,6 +1341,12 @@ function getViewAriaLabel() {
       return "Settings";
     case VIEW_LIBRARY:
       return "Quest library";
+    case VIEW_EXERCISE_EDITOR:
+      return "Quest editor";
+    case VIEW_LOCATIONS:
+      return "Locations";
+    case VIEW_LOCATION_EDITOR:
+      return "Location editor";
     case VIEW_FONT_SETTINGS:
       return "Font settings";
     case VIEW_THEME_SETTINGS:
@@ -788,7 +1361,19 @@ function getHeaderButtonLabel() {
     return "Open settings";
   }
 
-  return state.view === VIEW_SETTINGS ? "Back to main screen" : "Back to settings";
+  if (state.view === VIEW_SETTINGS) {
+    return "Back to main screen";
+  }
+
+  if (state.view === VIEW_EXERCISE_EDITOR) {
+    return "Back to quest library";
+  }
+
+  if (state.view === VIEW_LOCATION_EDITOR) {
+    return "Back to locations";
+  }
+
+  return "Back to settings";
 }
 
 function buildCurrentViewMarkup() {
@@ -797,6 +1382,12 @@ function buildCurrentViewMarkup() {
       return buildSettingsMarkup();
     case VIEW_LIBRARY:
       return buildLibraryMarkup();
+    case VIEW_EXERCISE_EDITOR:
+      return buildExerciseEditorMarkup();
+    case VIEW_LOCATIONS:
+      return buildLocationsMarkup();
+    case VIEW_LOCATION_EDITOR:
+      return buildLocationEditorMarkup();
     case VIEW_FONT_SETTINGS:
       return buildFontSettingsMarkup();
     case VIEW_THEME_SETTINGS:
@@ -955,6 +1546,11 @@ function buildSettingsMarkup() {
       attributeValue: VIEW_LIBRARY,
     }),
     renderSettingsRow({
+      label: "Locations",
+      attributeName: "data-settings-target",
+      attributeValue: VIEW_LOCATIONS,
+    }),
+    renderSettingsRow({
       label: "Export Data",
       attributeName: "data-settings-action",
       attributeValue: SETTINGS_ACTION_EXPORT,
@@ -978,13 +1574,151 @@ function buildSettingsMarkup() {
 }
 
 function buildLibraryMarkup() {
-  const rows = getSortedQuestLibrary().map((quest) => renderLibraryQuestRow(quest));
+  return getSortedQuestLibrary().map((quest) => renderLibraryQuestRow(quest)).join("");
+}
 
-  if (state.libraryDraftQuest) {
-    rows.push(renderLibraryDraftRow(state.libraryDraftQuest));
+function buildExerciseEditorMarkup() {
+  const draft = state.libraryDraftQuest;
+
+  if (!draft) {
+    return "";
   }
 
-  return rows.join("");
+  return `
+    <section class="editor-form" aria-label="Quest editor">
+      ${renderEditorInputRow({
+        label: "Name",
+        value: draft.name,
+        placeholder: "new quest",
+        inputAttribute: "data-exercise-name-input",
+        autocomplete: "off",
+        enterkeyhint: "done",
+        isFocusRow: true,
+      })}
+      <div class="equipment-picker">
+        ${renderEditorInputRow({
+          label: "Equipment",
+          value: draft.equipmentName || "",
+          placeholder: "none",
+          inputAttribute: "data-exercise-equipment-input",
+          autocomplete: "off",
+          enterkeyhint: "done",
+        })}
+        <div class="equipment-suggestions" data-equipment-suggestions>
+          ${renderEquipmentSuggestions(draft.equipmentName || "")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderEquipmentSuggestions(value) {
+  const query = getNameKey(value);
+  const matches = getSortedEquipmentLibrary().filter((equipment) => {
+    if (!query) {
+      return true;
+    }
+
+    return getNameKey(equipment.name).includes(query);
+  });
+
+  return matches
+    .map(
+      (equipment) => `
+        <button
+          class="equipment-suggestion"
+          type="button"
+          data-equipment-suggestion-id="${escapeAttribute(equipment.id)}"
+        >
+          <span
+            class="fit-text stack-copy stack-copy-event"
+            data-fit-text
+            data-fit-base="86"
+          >
+            <span class="fit-text-inner">${escapeHtml(normalizeStackCopy(equipment.name))}</span>
+          </span>
+        </button>
+      `
+    )
+    .join("");
+}
+
+function buildLocationsMarkup() {
+  return state.locations.map((location) => renderLocationRow(location)).join("");
+}
+
+function buildLocationEditorMarkup() {
+  const draft = state.locationDraft;
+
+  if (!draft) {
+    return "";
+  }
+
+  const equipmentRows = getSortedEquipmentLibrary()
+    .map((equipment) => renderLocationEquipmentRow(equipment, draft.equipmentIds.includes(equipment.id)))
+    .join("");
+
+  return `
+    <section class="editor-form" aria-label="Location editor">
+      ${renderEditorInputRow({
+        label: "Name",
+        value: draft.name,
+        placeholder: "new location",
+        inputAttribute: "data-location-name-input",
+        autocomplete: "off",
+        enterkeyhint: "done",
+        isFocusRow: true,
+      })}
+      <p
+        class="fit-text stack-copy stack-copy-date editor-label editor-section-label"
+        data-fit-text
+        data-fit-base="44"
+      >
+        <span class="fit-text-inner">EQUIPMENT</span>
+      </p>
+      ${equipmentRows}
+    </section>
+  `;
+}
+
+function renderEditorInputRow({
+  label,
+  value,
+  placeholder,
+  inputAttribute,
+  autocomplete = "off",
+  enterkeyhint = "done",
+  isFocusRow = false,
+}) {
+  return `
+    <article class="stack-row stack-row-event stack-row-editor ${isFocusRow ? "stack-row-editor-focus" : ""}" ${
+      isFocusRow ? "data-editor-focus-row" : ""
+    }>
+      <label class="quest-editor-shell">
+        <span
+          class="fit-text stack-copy stack-copy-date editor-label"
+          data-fit-text
+          data-fit-base="50"
+        >
+          <span class="fit-text-inner">${escapeHtml(normalizeStackCopy(label))}</span>
+        </span>
+        <input
+          class="quest-editor-input"
+          data-fit-input
+          data-fit-base="104"
+          data-fit-max-text="${escapeAttribute(value || placeholder)}"
+          ${inputAttribute}
+          type="text"
+          value="${escapeAttribute(value)}"
+          placeholder="${escapeAttribute(placeholder)}"
+          autocapitalize="words"
+          autocomplete="${escapeAttribute(autocomplete)}"
+          spellcheck="false"
+          enterkeyhint="${escapeAttribute(enterkeyhint)}"
+        />
+      </label>
+    </article>
+  `;
 }
 
 function buildFontSettingsMarkup() {
@@ -1182,7 +1916,7 @@ function renderLibraryQuestRow(quest) {
   }
 
   return `
-    <article class="${classes.join(" ")}" data-library-quest-id="${quest.id}">
+    <article class="${classes.join(" ")}" data-library-quest-id="${escapeAttribute(quest.id)}">
       <strong
         class="fit-text stack-copy stack-copy-event"
         data-fit-text
@@ -1194,25 +1928,46 @@ function renderLibraryQuestRow(quest) {
   `;
 }
 
-function renderLibraryDraftRow(quest) {
+function renderLocationRow(location) {
+  const classes = ["stack-row", "stack-row-event", "stack-row-library"];
+
+  if (state.locationSelectedId === location.id) {
+    classes.push("is-selected");
+  }
+
   return `
-    <article class="stack-row stack-row-event stack-row-library stack-row-library-draft is-selected">
-      <label class="quest-editor-shell" aria-label="New quest">
-        <input
-          class="quest-editor-input"
-          data-fit-input
-          data-fit-base="132"
-          data-fit-max-text="${escapeAttribute(quest.name || "new quest")}"
-          data-library-draft-input
-          type="text"
-          value="${escapeAttribute(quest.name)}"
-          placeholder="new quest"
-          autocapitalize="words"
-          autocomplete="off"
-          spellcheck="false"
-          enterkeyhint="done"
-        />
-      </label>
+    <article class="${classes.join(" ")}" data-location-id="${escapeAttribute(location.id)}">
+      <strong
+        class="fit-text stack-copy stack-copy-event"
+        data-fit-text
+        data-fit-base="132"
+      >
+        <span class="fit-text-inner">${escapeHtml(normalizeStackCopy(location.name))}</span>
+      </strong>
+    </article>
+  `;
+}
+
+function renderLocationEquipmentRow(equipment, isAvailable) {
+  const classes = ["stack-row", "stack-row-event", "stack-row-library", "stack-row-equipment"];
+
+  if (!isAvailable) {
+    classes.push("is-inactive");
+  }
+
+  return `
+    <article
+      class="${classes.join(" ")}"
+      data-location-equipment-id="${escapeAttribute(equipment.id)}"
+      aria-label="${escapeAttribute(`${equipment.name} ${isAvailable ? "available" : "unavailable"}`)}"
+    >
+      <strong
+        class="fit-text stack-copy stack-copy-event"
+        data-fit-text
+        data-fit-base="112"
+      >
+        <span class="fit-text-inner">${escapeHtml(normalizeStackCopy(equipment.name))}</span>
+      </strong>
     </article>
   `;
 }
@@ -1263,6 +2018,9 @@ function exportAppData() {
     exportedAt: exportedAt.toISOString(),
     score: sanitizeScore(state.score),
     questLibrary: cloneQuestLibrary(state.questLibrary),
+    equipmentLibrary: cloneEquipmentLibrary(state.equipmentLibrary),
+    locations: cloneLocations(state.locations),
+    selectedLocationId: state.selectedLocationId,
     dailyLog: [...state.events].sort(sortByTimestamp).map(serializeExportEvent),
   };
   const fileName = `fitquest-export-${formatDateForFilename(exportedAt)}.json`;
@@ -1283,29 +2041,7 @@ function parseImportedAppData(rawText) {
 }
 
 function sanitizeImportedAppData(payload) {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-
-  const rawDailyLog = Array.isArray(payload.dailyLog)
-    ? payload.dailyLog
-    : Array.isArray(payload.events)
-      ? payload.events
-      : null;
-
-  if (!Array.isArray(payload.questLibrary) || !rawDailyLog) {
-    return null;
-  }
-
-  const events = sanitizeEvents(rawDailyLog);
-
-  return {
-    events,
-    questLibrary: sanitizeQuestLibrary(payload.questLibrary),
-    score: hasNumericValue(payload.score)
-      ? deriveScore(payload.score, rawDailyLog, events)
-      : sanitizeScore(getEventPointTotal(events)),
-  };
+  return sanitizeAppData(payload);
 }
 
 function applyImportedAppData(importedData) {
@@ -1313,6 +2049,9 @@ function applyImportedAppData(importedData) {
   clearLibraryEditorState();
   state.events = importedData.events;
   state.questLibrary = importedData.questLibrary;
+  state.equipmentLibrary = importedData.equipmentLibrary;
+  state.locations = importedData.locations;
+  state.selectedLocationId = importedData.selectedLocationId;
   state.score = importedData.score;
   state.pendingQuest = null;
   persistState();
@@ -1561,8 +2300,20 @@ function revealLibraryQuest(questId, behavior = "smooth") {
   focusElementInSafeBand(questRow, behavior);
 }
 
+function revealLocation(locationId, behavior = "smooth") {
+  const locationRow = ui.timeline.querySelector(`[data-location-id="${locationId}"]`);
+
+  if (!locationRow) {
+    return;
+  }
+
+  focusElementInSafeBand(locationRow, behavior);
+}
+
 function focusLibraryDraftInput() {
-  const input = ui.timeline.querySelector("[data-library-draft-input]");
+  const input = ui.timeline.querySelector(
+    "[data-exercise-name-input], [data-location-name-input]"
+  );
 
   if (!input) {
     return;
@@ -1587,6 +2338,33 @@ function focusLibraryDraftInput() {
   }
 
   startLibraryDraftViewportSync();
+}
+
+function focusExerciseEquipmentInput() {
+  const input = ui.timeline.querySelector("[data-exercise-equipment-input]");
+
+  if (!input) {
+    return;
+  }
+
+  fitEditableQuestInput(input);
+
+  try {
+    input.focus({ preventScroll: true });
+  } catch (error) {
+    input.focus();
+  }
+}
+
+function syncEquipmentSuggestions() {
+  const suggestions = ui.timeline.querySelector("[data-equipment-suggestions]");
+
+  if (!suggestions || !state.libraryDraftQuest) {
+    return;
+  }
+
+  suggestions.innerHTML = renderEquipmentSuggestions(state.libraryDraftQuest.equipmentName || "");
+  scheduleFitText();
 }
 
 function focusElementInSafeBand(element, behavior = "smooth") {
@@ -1639,7 +2417,7 @@ function startLibraryDraftViewportSync() {
   function revealDraft(behavior = "auto") {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
-        const draftRow = ui.timeline.querySelector(".stack-row-library-draft");
+        const draftRow = ui.timeline.querySelector("[data-editor-focus-row]");
 
         if (draftRow) {
           scrollElementToTopSafeBand(draftRow, behavior);
@@ -1722,6 +2500,20 @@ function setControlsClearance(value) {
   );
 }
 
+function setQuestFabClearance(value) {
+  document.documentElement.style.setProperty(
+    "--quest-fab-clearance",
+    `${Math.max(0, Math.ceil(value))}px`
+  );
+}
+
+function setLocationFooterClearance(value) {
+  document.documentElement.style.setProperty(
+    "--location-footer-clearance",
+    `${Math.max(0, Math.ceil(value))}px`
+  );
+}
+
 function setControlsKeyboardOffset(value) {
   document.documentElement.style.setProperty(
     "--controls-keyboard-offset",
@@ -1738,7 +2530,7 @@ function scrollToBottomThen(callback) {
   }
 
   window.requestAnimationFrame(() => {
-    const targetTop = getMaxScrollTop();
+    const targetTop = getPinnedBottomScrollTop();
     const startTime = performance.now();
     let settledFrames = 0;
 
@@ -2024,6 +2816,11 @@ function getMaxScrollTop() {
   return scroller ? Math.max(scroller.scrollHeight - scroller.clientHeight, 0) : 0;
 }
 
+function getPinnedBottomScrollTop() {
+  const fabClearance = getCssPixelValue("--quest-fab-clearance", 0);
+  return Math.max(getMaxScrollTop() - fabClearance, 0);
+}
+
 function getElementScrollBounds(element) {
   const scroller = getScrollContainer();
 
@@ -2066,7 +2863,7 @@ function scrollContainerTo(top, behavior = "smooth") {
 }
 
 function scrollToDocumentBottom(behavior = "smooth") {
-  scrollContainerTo(getMaxScrollTop(), behavior);
+  scrollContainerTo(getPinnedBottomScrollTop(), behavior);
 }
 
 function scrollToDocumentTop(behavior = "smooth") {
@@ -2080,7 +2877,7 @@ function pinTimelineToBottom() {
     return;
   }
 
-  scroller.scrollTop = getMaxScrollTop();
+  scroller.scrollTop = getPinnedBottomScrollTop();
 }
 
 function createQuestCompletionEvent(quest, timestamp, customId) {
@@ -2144,7 +2941,7 @@ function getAppendEventTimestamp() {
 }
 
 function getRandomQuest(excludeName = "") {
-  const activeLibrary = getActiveQuestLibrary();
+  const activeLibrary = getAvailableQuestLibrary();
   const filteredLibrary = activeLibrary.filter((quest) => quest.name !== excludeName);
   const pool = filteredLibrary.length ? filteredLibrary : activeLibrary;
   const randomQuest = pool[Math.floor(Math.random() * pool.length)];
@@ -2160,9 +2957,28 @@ function getSelectedLibraryQuest() {
   return state.questLibrary.find((quest) => quest.id === state.librarySelectedQuestId) || null;
 }
 
+function getSelectedLocation() {
+  return state.locations.find((location) => location.id === state.locationSelectedId) || null;
+}
+
+function getCurrentLocation() {
+  const location = state.locations.find((item) => item.id === state.selectedLocationId);
+  return location || state.locations[0] || null;
+}
+
 function clearLibraryEditorState() {
   state.librarySelectedQuestId = null;
   state.libraryDraftQuest = null;
+}
+
+function clearLocationEditorState() {
+  state.locationSelectedId = null;
+  state.locationDraft = null;
+}
+
+function clearEditorState() {
+  clearLibraryEditorState();
+  clearLocationEditorState();
 }
 
 function getSortedQuestLibrary(library = state.questLibrary) {
@@ -2173,8 +2989,110 @@ function getActiveQuestLibrary(library = state.questLibrary) {
   return library.filter((quest) => quest.active !== false && sanitizeQuestName(quest.name));
 }
 
+function getAvailableQuestLibrary(library = state.questLibrary) {
+  const activeLibrary = getActiveQuestLibrary(library);
+  const currentLocation = getCurrentLocation();
+
+  if (!currentLocation) {
+    return activeLibrary;
+  }
+
+  const locationEquipmentIds = new Set(currentLocation.equipmentIds);
+  return activeLibrary.filter(
+    (quest) => !quest.equipmentId || locationEquipmentIds.has(quest.equipmentId)
+  );
+}
+
 function cloneQuestLibrary(questLibrary) {
   return questLibrary.map((quest) => ({ ...quest }));
+}
+
+function cloneEquipmentLibrary(equipmentLibrary) {
+  return equipmentLibrary.map((equipment) => ({ ...equipment }));
+}
+
+function cloneLocations(locations) {
+  return locations.map((location) => ({
+    ...location,
+    equipmentIds: Array.isArray(location.equipmentIds) ? [...location.equipmentIds] : [],
+  }));
+}
+
+function createDefaultLocations(equipmentLibrary = DEFAULT_EQUIPMENT_LIBRARY) {
+  return [
+    {
+      id: DEFAULT_LOCATION_ID,
+      name: "Default",
+      equipmentIds: equipmentLibrary.map((equipment) => equipment.id),
+    },
+  ];
+}
+
+function getSortedEquipmentLibrary(library = state.equipmentLibrary) {
+  return [...library].sort(compareEquipmentLibrary);
+}
+
+function getEquipmentIdSet(library = state.equipmentLibrary) {
+  return new Set(library.map((equipment) => equipment.id));
+}
+
+function getEquipmentNameById(equipmentId) {
+  return state.equipmentLibrary.find((equipment) => equipment.id === equipmentId)?.name || "";
+}
+
+function resolveDraftEquipmentId(value) {
+  const name = sanitizeEquipmentName(value);
+
+  if (!name) {
+    return null;
+  }
+
+  const existingEquipment = state.equipmentLibrary.find(
+    (equipment) => getNameKey(equipment.name) === getNameKey(name)
+  );
+
+  if (existingEquipment) {
+    return existingEquipment.id;
+  }
+
+  const usedEquipmentIds = new Set(state.equipmentLibrary.map((equipment) => equipment.id));
+  const id = getUniqueId(createEquipmentReferenceId(name), usedEquipmentIds);
+  const equipment = { id, name };
+
+  state.equipmentLibrary = [...state.equipmentLibrary, equipment].sort(compareEquipmentLibrary);
+  addEquipmentToCurrentLocation(id);
+  return id;
+}
+
+function addEquipmentToCurrentLocation(equipmentId) {
+  const currentLocation = getCurrentLocation();
+
+  if (!currentLocation) {
+    return;
+  }
+
+  state.locations = state.locations.map((location) => {
+    if (location.id !== currentLocation.id || location.equipmentIds.includes(equipmentId)) {
+      return location;
+    }
+
+    return {
+      ...location,
+      equipmentIds: [...location.equipmentIds, equipmentId],
+    };
+  });
+}
+
+function syncEquipmentLibraryFromQuestLibrary() {
+  const usedEquipmentIds = new Set(
+    state.questLibrary.map((quest) => quest.equipmentId).filter(Boolean)
+  );
+
+  state.equipmentLibrary = state.equipmentLibrary
+    .filter((equipment) => usedEquipmentIds.has(equipment.id))
+    .sort(compareEquipmentLibrary);
+  state.locations = sanitizeLocations(state.locations, state.equipmentLibrary);
+  state.selectedLocationId = sanitizeSelectedLocationId(state.selectedLocationId, state.locations);
 }
 
 function getCurrentFontOption() {
@@ -2267,6 +3185,24 @@ function createQuestReferenceId(name) {
   return slug ? `quest-ref-${slug}` : createId("quest-ref");
 }
 
+function createEquipmentReferenceId(name) {
+  const slug = sanitizeEquipmentName(name)
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug ? `equipment-${slug}` : createId("equipment");
+}
+
+function createLocationReferenceId(name) {
+  const slug = sanitizeLocationName(name)
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug ? `location-${slug}` : createId("location");
+}
+
 function formatDayLabel(date) {
   const weekday = date.toLocaleDateString(undefined, { weekday: "long" });
   const month = date.toLocaleDateString(undefined, { month: "long" });
@@ -2279,6 +3215,35 @@ function normalizeStackCopy(value) {
 
 function sanitizeQuestName(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function sanitizeEquipmentName(value) {
+  return sanitizeQuestName(value);
+}
+
+function sanitizeLocationName(value) {
+  return sanitizeQuestName(value);
+}
+
+function sanitizeId(value) {
+  return sanitizeQuestName(value);
+}
+
+function getNameKey(value) {
+  return sanitizeQuestName(value).toLocaleLowerCase();
+}
+
+function getUniqueId(baseId, usedIds) {
+  const safeBaseId = sanitizeId(baseId) || createId("item");
+  let id = safeBaseId;
+  let suffix = 2;
+
+  while (usedIds.has(id)) {
+    id = `${safeBaseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return id;
 }
 
 function getDayKey(date) {
@@ -2309,12 +3274,57 @@ function sanitizeEvents(value) {
     .sort(sortByTimestamp);
 }
 
-function sanitizeQuestLibrary(value) {
-  if (!Array.isArray(value)) {
-    return cloneQuestLibrary(DEFAULT_QUEST_LIBRARY);
+function sanitizeAppData(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
   }
 
-  const library = value
+  const rawEvents = Array.isArray(payload.events)
+    ? payload.events
+    : Array.isArray(payload.dailyLog)
+      ? payload.dailyLog
+      : null;
+
+  if (!Array.isArray(payload.questLibrary) || !rawEvents) {
+    return null;
+  }
+
+  const events = sanitizeEvents(rawEvents);
+  const { questLibrary, equipmentLibrary } = sanitizeQuestAndEquipmentLibraries(
+    payload.questLibrary,
+    payload.equipmentLibrary
+  );
+  const locations = sanitizeLocations(payload.locations, equipmentLibrary);
+  const selectedLocationId = sanitizeSelectedLocationId(payload.selectedLocationId, locations);
+
+  return {
+    events,
+    questLibrary,
+    equipmentLibrary,
+    locations,
+    selectedLocationId,
+    score: hasNumericValue(payload.score)
+      ? deriveScore(payload.score, rawEvents, events)
+      : sanitizeScore(getEventPointTotal(events)),
+  };
+}
+
+function sanitizeQuestAndEquipmentLibraries(rawQuestLibrary, rawEquipmentLibrary) {
+  if (!Array.isArray(rawQuestLibrary)) {
+    return {
+      questLibrary: cloneQuestLibrary(DEFAULT_QUEST_LIBRARY),
+      equipmentLibrary: cloneEquipmentLibrary(DEFAULT_EQUIPMENT_LIBRARY),
+    };
+  }
+
+  const equipmentLibrary = sanitizeEquipmentLibrary(rawEquipmentLibrary);
+  const equipmentById = new Map(equipmentLibrary.map((equipment) => [equipment.id, equipment]));
+  const equipmentByName = new Map(
+    equipmentLibrary.map((equipment) => [getNameKey(equipment.name), equipment])
+  );
+  const usedEquipmentIds = new Set(equipmentLibrary.map((equipment) => equipment.id));
+  const shouldInferEquipment = equipmentLibrary.length === 0;
+  const questLibrary = rawQuestLibrary
     .map((quest, index) => {
       const name = sanitizeQuestName(quest?.name);
 
@@ -2322,19 +3332,255 @@ function sanitizeQuestLibrary(value) {
         return null;
       }
 
-      return {
-        id: sanitizeQuestName(quest?.id) || `quest-library-${index}-${name.toLowerCase()}`,
-        name,
-        active: quest?.active !== false,
-      };
+      let equipmentId = null;
+      const rawEquipmentId = sanitizeId(quest?.equipmentId);
+      const rawEquipmentName = sanitizeEquipmentName(
+        quest?.equipmentName || quest?.equipment?.name || ""
+      );
+
+      if (rawEquipmentId && equipmentById.has(rawEquipmentId)) {
+        equipmentId = rawEquipmentId;
+      } else if (rawEquipmentName) {
+        equipmentId = ensureEquipmentItem({
+          equipmentLibrary,
+          equipmentById,
+          equipmentByName,
+          usedEquipmentIds,
+          name: rawEquipmentName,
+          preferredId: rawEquipmentId,
+        });
+      } else if (shouldInferEquipment) {
+        const inferredEquipment = inferEquipmentForQuestName(name);
+
+        if (inferredEquipment) {
+          equipmentId = ensureEquipmentItem({
+            equipmentLibrary,
+            equipmentById,
+            equipmentByName,
+            usedEquipmentIds,
+            name: inferredEquipment.name,
+            preferredId: inferredEquipment.id,
+          });
+        }
+      }
+
+      return sanitizeQuest(
+        {
+          id: sanitizeQuestName(quest?.id) || `quest-library-${index}-${name.toLowerCase()}`,
+          name,
+          active: quest?.active !== false,
+          equipmentId,
+        },
+        index,
+        new Set(equipmentLibrary.map((equipment) => equipment.id))
+      );
     })
     .filter(Boolean);
 
-  if (library.length) {
-    return library;
+  if (!questLibrary.length && rawQuestLibrary.length) {
+    return {
+      questLibrary: cloneQuestLibrary(DEFAULT_QUEST_LIBRARY),
+      equipmentLibrary: cloneEquipmentLibrary(DEFAULT_EQUIPMENT_LIBRARY),
+    };
   }
 
-  return value.length === 0 ? [] : cloneQuestLibrary(DEFAULT_QUEST_LIBRARY);
+  const usedQuestEquipmentIds = new Set(
+    questLibrary.map((quest) => quest.equipmentId).filter(Boolean)
+  );
+  const syncedEquipmentLibrary = equipmentLibrary
+    .filter((equipment) => usedQuestEquipmentIds.has(equipment.id))
+    .sort(compareEquipmentLibrary);
+
+  return {
+    questLibrary,
+    equipmentLibrary: syncedEquipmentLibrary,
+  };
+}
+
+function sanitizeQuestLibrary(value) {
+  return sanitizeQuestAndEquipmentLibraries(value, state.equipmentLibrary).questLibrary;
+}
+
+function sanitizeQuest(quest, index = 0, validEquipmentIds = getEquipmentIdSet()) {
+  const name = sanitizeQuestName(quest?.name);
+
+  if (!name) {
+    return null;
+  }
+
+  const equipmentId = sanitizeId(quest?.equipmentId);
+
+  return {
+    id: sanitizeQuestName(quest?.id) || `quest-library-${index}-${name.toLowerCase()}`,
+    name,
+    active: quest?.active !== false,
+    equipmentId: equipmentId && validEquipmentIds.has(equipmentId) ? equipmentId : null,
+  };
+}
+
+function sanitizeEquipmentLibrary(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const equipmentLibrary = [];
+  const equipmentById = new Map();
+  const equipmentByName = new Map();
+  const usedEquipmentIds = new Set();
+
+  for (const item of value) {
+    const name = sanitizeEquipmentName(item?.name);
+
+    if (!name) {
+      continue;
+    }
+
+    ensureEquipmentItem({
+      equipmentLibrary,
+      equipmentById,
+      equipmentByName,
+      usedEquipmentIds,
+      name,
+      preferredId: sanitizeId(item?.id),
+    });
+  }
+
+  return equipmentLibrary.sort(compareEquipmentLibrary);
+}
+
+function sanitizeLocations(value, equipmentLibrary = state.equipmentLibrary) {
+  const validEquipmentIds = new Set(equipmentLibrary.map((equipment) => equipment.id));
+
+  if (!Array.isArray(value)) {
+    return createDefaultLocations(equipmentLibrary);
+  }
+
+  const usedLocationIds = new Set();
+  const locations = value
+    .map((location, index) => {
+      const name = sanitizeLocationName(location?.name) || `Location ${index + 1}`;
+      const id = getUniqueId(
+        sanitizeId(location?.id) || createLocationReferenceId(name),
+        usedLocationIds
+      );
+      const equipmentIds = Array.isArray(location?.equipmentIds)
+        ? [...new Set(location.equipmentIds.map(sanitizeId))].filter((equipmentId) =>
+            validEquipmentIds.has(equipmentId)
+          )
+        : [];
+
+      usedLocationIds.add(id);
+
+      return {
+        id,
+        name,
+        equipmentIds,
+      };
+    })
+    .filter((location) => sanitizeLocationName(location.name));
+
+  return locations.length ? locations : createDefaultLocations(equipmentLibrary);
+}
+
+function sanitizeSelectedLocationId(value, locations = state.locations) {
+  const selectedLocationId = sanitizeId(value);
+
+  if (locations.some((location) => location.id === selectedLocationId)) {
+    return selectedLocationId;
+  }
+
+  return locations[0]?.id || DEFAULT_LOCATION_ID;
+}
+
+function ensureEquipmentItem({
+  equipmentLibrary,
+  equipmentById,
+  equipmentByName,
+  usedEquipmentIds,
+  name,
+  preferredId = "",
+}) {
+  const safeName = sanitizeEquipmentName(name);
+  const nameKey = getNameKey(safeName);
+  const existingByName = equipmentByName.get(nameKey);
+
+  if (existingByName) {
+    return existingByName.id;
+  }
+
+  const baseId = sanitizeId(preferredId) || createEquipmentReferenceId(safeName);
+  const id = getUniqueId(baseId, usedEquipmentIds);
+  const equipment = { id, name: safeName };
+
+  equipmentLibrary.push(equipment);
+  equipmentById.set(id, equipment);
+  equipmentByName.set(nameKey, equipment);
+  usedEquipmentIds.add(id);
+  return id;
+}
+
+function inferEquipmentForQuestName(name) {
+  const rule = EQUIPMENT_INFERENCE_RULES.find((item) => item.pattern.test(name));
+
+  if (!rule) {
+    return null;
+  }
+
+  const qualifier = getEquipmentQualifierForQuest(name, rule);
+  const equipmentName = qualifier ? `${qualifier} ${rule.name}` : rule.name;
+
+  return {
+    id: createEquipmentReferenceId(equipmentName),
+    name: equipmentName,
+  };
+}
+
+function getEquipmentQualifierForQuest(name, rule) {
+  const weight = extractEquipmentWeight(name);
+
+  if (weight) {
+    return weight;
+  }
+
+  if (rule.id === "equipment-pull-up-band") {
+    return extractParentheticalEquipmentQualifier(name).toLocaleLowerCase();
+  }
+
+  if (rule.id === "equipment-hand-gripper") {
+    return extractEquipmentLevel(name);
+  }
+
+  return "";
+}
+
+function extractEquipmentWeight(value) {
+  const match = String(value).match(
+    /\b(\d+(?:\.\d+)?)\s*(kg|kgs|kilogram|kilograms|lb|lbs|pound|pounds)\b/i
+  );
+
+  if (!match) {
+    return "";
+  }
+
+  const amount = match[1];
+  const unit = /^(kg|kgs|kilogram|kilograms)$/i.test(match[2]) ? "kg" : "lb";
+  return `${amount}${unit}`;
+}
+
+function extractEquipmentLevel(value) {
+  const match = String(value).match(/\bL\d+\b/i);
+  return match ? match[0].toLocaleUpperCase() : "";
+}
+
+function extractParentheticalEquipmentQualifier(value) {
+  const match = String(value).match(/\(([^)]+)\)/);
+  const qualifier = sanitizeEquipmentName(match?.[1]);
+
+  if (!qualifier || extractEquipmentWeight(qualifier)) {
+    return "";
+  }
+
+  return qualifier;
 }
 
 function sanitizeEvent(event, index) {
@@ -2522,6 +3768,22 @@ function compareQuestLibrary(left, right) {
 
   if (secondary !== 0) {
     return secondary;
+  }
+
+  return String(left.id).localeCompare(String(right.id), undefined, {
+    sensitivity: "base",
+  });
+}
+
+function compareEquipmentLibrary(left, right) {
+  const primary = sanitizeEquipmentName(left.name).localeCompare(
+    sanitizeEquipmentName(right.name),
+    undefined,
+    { sensitivity: "base" }
+  );
+
+  if (primary !== 0) {
+    return primary;
   }
 
   return String(left.id).localeCompare(String(right.id), undefined, {
