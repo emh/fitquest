@@ -430,6 +430,7 @@ body[data-view="timer"] .quest-stack {
 }
 
 .timer-screen {
+  position: relative;
   display: grid;
   flex: 1 1 auto;
   place-items: center;
@@ -507,6 +508,39 @@ body[data-view="timer"] .quest-stack {
 
 .timer-circle[data-timer-phase="done"] .timer-circle-label {
   color: var(--accept);
+}
+
+.timer-wake-lock-button {
+  position: absolute;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 18px);
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--signal);
+  background: transparent;
+  font-family: var(--display-font-family);
+  font-size: 0.78rem;
+  font-weight: var(--display-font-weight);
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.timer-wake-lock-button.is-hidden {
+  display: none;
+}
+
+.timer-wake-lock-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.timer-wake-lock-button:not(:disabled):active {
+  transform: translateX(-50%) scale(0.96);
 }
 
 .stack-row-event.is-bonus .stack-copy-event {

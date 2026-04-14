@@ -27,7 +27,8 @@ const TIMER_PHASE_READY = "ready";
 const TIMER_PHASE_COUNTDOWN = "countdown";
 const TIMER_PHASE_RUNNING = "running";
 const TIMER_PHASE_DONE = "done";
-const TIMER_SOUND_GAIN = 0.08;
+const TIMER_SOUND_GAIN = 0.16;
+const TIMER_WAKE_LOCK_TYPE = "screen";
 const DEFAULT_FONT_PREFERENCE = "climate-crisis";
 const DEFAULT_THEME_PREFERENCE = "system";
 const LIGHT_THEME_COLOR = "#de2c23";
@@ -295,6 +296,10 @@ let isLocationPickerAnimating = false;
 let timerCountdownTimer = 0;
 let timerAnimationFrame = 0;
 let timerAudioContext = null;
+let hasPrimedTimerAudio = false;
+let timerWakeLock = null;
+let timerWakeLockRequest = null;
+let lastTimerWakeLockAlert = "";
 
 initialize();
 
@@ -335,10 +340,13 @@ function bindEvents() {
   ui.saveQuestButton.addEventListener("click", saveCurrentDraft);
   ui.cancelCreateButton.addEventListener("click", cancelCurrentDraft);
   ui.locationPicker?.addEventListener("click", handleLocationPickerClick);
+  ui.timeline.addEventListener("pointerdown", handleTimelinePointerDown, { passive: true });
+  ui.timeline.addEventListener("touchstart", handleTimelinePointerDown, { passive: true });
   ui.timeline.addEventListener("click", handleTimelineClick);
   ui.timeline.addEventListener("input", handleTimelineInput);
   ui.timeline.addEventListener("keydown", handleTimelineKeydown);
   ui.importFileInput?.addEventListener("change", handleImportFileSelection);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
   window.addEventListener("resize", scheduleFitText, { passive: true });
 
   if (!systemThemeMedia) {
@@ -937,6 +945,12 @@ function deleteSelectedQuest() {
   showFeedback("DELETED");
 }
 
+function handleTimelinePointerDown(event) {
+  if (state.view === VIEW_TIMER && event.target.closest("[data-timer-action]")) {
+    primeTimerAudio();
+  }
+}
+
 function handleTimelineClick(event) {
   const welcomePrimaryButton = event.target.closest("[data-welcome-primary]");
   const welcomeLibraryButton = event.target.closest("[data-welcome-library]");
@@ -946,6 +960,12 @@ function handleTimelineClick(event) {
   const themeOptionButton = event.target.closest("[data-theme-option]");
 
   if (state.view === VIEW_TIMER) {
+    if (event.target.closest("[data-timer-wake-lock]")) {
+      debugTimerWakeLock("manual retry");
+      acquireTimerWakeLock();
+      return;
+    }
+
     if (event.target.closest("[data-timer-action]")) {
       handleTimerAction();
     }
@@ -1092,6 +1112,12 @@ function handleTimelineKeydown(event) {
   if (event.key === "Escape") {
     event.preventDefault();
     cancelCurrentDraft();
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === "visible" && state.view === VIEW_TIMER && state.timerSession) {
+    acquireTimerWakeLock();
   }
 }
 
@@ -1497,6 +1523,7 @@ function buildTimelineMarkup() {
 
 function buildTimerMarkup() {
   const label = getTimerDisplayText(state.timerSession);
+  const wakeLockLabel = getTimerWakeLockLabel();
 
   return `
     <section class="timer-screen" aria-label="Quest timer">
@@ -1511,6 +1538,15 @@ function buildTimerMarkup() {
         <span class="timer-circle-label" data-timer-label aria-live="polite">
           ${escapeHtml(label)}
         </span>
+      </button>
+      <button
+        class="timer-wake-lock-button ${shouldShowTimerWakeLockButton() ? "" : "is-hidden"}"
+        type="button"
+        data-timer-wake-lock
+        aria-label="${escapeAttribute(wakeLockLabel)}"
+        ${isTimerWakeLockPending() ? "disabled" : ""}
+      >
+        ${escapeHtml(wakeLockLabel)}
       </button>
     </section>
   `;
@@ -2385,6 +2421,8 @@ function createTimerSession(quest, plan) {
 }
 
 function handleTimerAction() {
+  primeTimerAudio();
+
   const session = state.timerSession;
 
   if (!session) {
@@ -2412,6 +2450,7 @@ function startTimerCountdown() {
   session.stageIndex = 0;
   session.countdownValue = TIMER_COUNTDOWN_SECONDS;
   session.progress = 0;
+  acquireTimerWakeLock();
   syncTimerDisplay({ flash: true });
   playTimerSound("countdown");
   scheduleTimerCountdownTick();
@@ -2510,6 +2549,7 @@ function finishTimerStage() {
   session.progress = 1;
   session.remainingSeconds = 0;
   syncTimerDisplay();
+  releaseTimerWakeLock();
   playTimerSound("done");
 }
 
@@ -2535,6 +2575,123 @@ function cancelTimerRuntime() {
     window.cancelAnimationFrame(timerAnimationFrame);
     timerAnimationFrame = 0;
   }
+
+  releaseTimerWakeLock();
+}
+
+function acquireTimerWakeLock() {
+  if (!navigator.wakeLock) {
+    alertTimerWakeLockFailure("navigator.wakeLock is not available", getTimerWakeLockDebugDetails());
+    syncTimerWakeLockControl();
+    return;
+  }
+
+  if (!window.isSecureContext) {
+    alertTimerWakeLockFailure("page is not a secure context", getTimerWakeLockDebugDetails());
+    syncTimerWakeLockControl();
+    return;
+  }
+
+  if (
+    !state.timerSession ||
+    document.visibilityState === "hidden" ||
+    (timerWakeLock && !timerWakeLock.released) ||
+    timerWakeLockRequest
+  ) {
+    debugTimerWakeLock("skipped", getTimerWakeLockDebugDetails());
+    syncTimerWakeLockControl();
+    return;
+  }
+
+  debugTimerWakeLock("requesting", getTimerWakeLockDebugDetails());
+  timerWakeLockRequest = navigator.wakeLock
+    .request(TIMER_WAKE_LOCK_TYPE)
+    .then((wakeLock) => {
+      if (
+        !state.timerSession ||
+        state.view !== VIEW_TIMER ||
+        document.visibilityState === "hidden"
+      ) {
+        debugTimerWakeLock("released stale lock", getTimerWakeLockDebugDetails());
+        wakeLock.release().catch(() => {});
+        return;
+      }
+
+      timerWakeLock = wakeLock;
+      timerWakeLock.addEventListener("release", handleTimerWakeLockRelease, { once: true });
+      debugTimerWakeLock("acquired", getTimerWakeLockDebugDetails());
+      syncTimerWakeLockControl();
+    })
+    .catch((error) => {
+      alertTimerWakeLockFailure(formatWakeLockError(error), getTimerWakeLockDebugDetails());
+    })
+    .finally(() => {
+      timerWakeLockRequest = null;
+      syncTimerWakeLockControl();
+    });
+
+  syncTimerWakeLockControl();
+}
+
+function releaseTimerWakeLock() {
+  const wakeLock = timerWakeLock;
+  timerWakeLock = null;
+  debugTimerWakeLock("release requested", getTimerWakeLockDebugDetails());
+  syncTimerWakeLockControl();
+
+  if (!wakeLock || wakeLock.released) {
+    return;
+  }
+
+  wakeLock.release().catch(() => {});
+}
+
+function handleTimerWakeLockRelease() {
+  timerWakeLock = null;
+  debugTimerWakeLock("released", getTimerWakeLockDebugDetails());
+  if (state.view === VIEW_TIMER && state.timerSession?.phase !== TIMER_PHASE_DONE) {
+    alertTimerWakeLockFailure("wake lock was released by the browser", getTimerWakeLockDebugDetails());
+  }
+  syncTimerWakeLockControl();
+}
+
+function debugTimerWakeLock(message, details = {}) {
+  console.debug("[fitquest:wake-lock]", message, details);
+}
+
+function alertTimerWakeLockFailure(reason, details = {}) {
+  const detailLines = Object.entries(details).map(([key, value]) => `${key}: ${value}`);
+  const message = [`Wake lock failed: ${reason}`, ...detailLines].join("\n");
+
+  if (message === lastTimerWakeLockAlert) {
+    return;
+  }
+
+  lastTimerWakeLockAlert = message;
+  window.alert(message);
+}
+
+function getTimerWakeLockDebugDetails() {
+  return {
+    secureContext: window.isSecureContext,
+    visibilityState: document.visibilityState,
+    hasWakeLockApi: "wakeLock" in navigator,
+    hasSession: Boolean(state.timerSession),
+    phase: state.timerSession?.phase || "none",
+    hasActiveLock: hasActiveTimerWakeLock(),
+    hasPendingRequest: Boolean(timerWakeLockRequest),
+    userAgent: navigator.userAgent,
+  };
+}
+
+function formatWakeLockError(error) {
+  if (!error) {
+    return "unknown error";
+  }
+
+  const name = error.name || "Error";
+  const message = error.message || String(error);
+  return `${name}: ${message}`;
 }
 
 function getCurrentTimerStage() {
@@ -2565,6 +2722,8 @@ function syncTimerDisplay({ flash = false } = {}) {
   if (flash) {
     flashTimerCircle(circle);
   }
+
+  syncTimerWakeLockControl();
 }
 
 function getTimerProgress(session) {
@@ -2605,6 +2764,42 @@ function getTimerActionLabel(session) {
   }
 
   return "Timed quest in progress";
+}
+
+function syncTimerWakeLockControl() {
+  const button = ui.timeline.querySelector("[data-timer-wake-lock]");
+
+  if (!button) {
+    return;
+  }
+
+  const label = getTimerWakeLockLabel();
+  button.textContent = label;
+  button.setAttribute("aria-label", label);
+  button.disabled = isTimerWakeLockPending();
+  button.classList.toggle("is-hidden", !shouldShowTimerWakeLockButton());
+}
+
+function shouldShowTimerWakeLockButton() {
+  return (
+    state.view === VIEW_TIMER &&
+    Boolean(state.timerSession) &&
+    state.timerSession.phase !== TIMER_PHASE_READY &&
+    !hasActiveTimerWakeLock() &&
+    "wakeLock" in navigator
+  );
+}
+
+function getTimerWakeLockLabel() {
+  return isTimerWakeLockPending() ? "WAKING" : "KEEP AWAKE";
+}
+
+function isTimerWakeLockPending() {
+  return Boolean(timerWakeLockRequest);
+}
+
+function hasActiveTimerWakeLock() {
+  return Boolean(timerWakeLock && !timerWakeLock.released);
 }
 
 function flashTimerCircle(circle) {
@@ -2652,11 +2847,29 @@ function playTimerSound(type) {
   };
 
   if (context.state === "suspended") {
-    context.resume().then(play).catch(() => {});
-    return;
+    context.resume().catch(() => {});
   }
 
   play();
+}
+
+function primeTimerAudio() {
+  const context = getTimerAudioContext();
+
+  if (!context) {
+    return;
+  }
+
+  if (context.state === "suspended") {
+    context.resume().catch(() => {});
+  }
+
+  if (hasPrimedTimerAudio) {
+    return;
+  }
+
+  hasPrimedTimerAudio = true;
+  playTimerTone(context, 440, 0, 0.01, 0.0001, "sine");
 }
 
 function getTimerAudioContext() {
